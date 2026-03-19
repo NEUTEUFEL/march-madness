@@ -9,8 +9,23 @@ const TEAMS = [
   {name:"New Mexico",seed:10,region:"N/A"},{name:"Xavier",seed:11,region:"N/A"},{name:"Drake",seed:11,region:"N/A"},{name:"Liberty",seed:12,region:"N/A"},
 ];
 
-const REGION_COLORS = {East:"#4a90d9",South:"#d94a4a",West:"#3ab06f",Midwest:"#d98f3a","N/A":"#5c5e6a"};
+const REGION_COLORS = {East:"#2563eb",South:"#dc2626",West:"#16a34a",Midwest:"#d97706","N/A":"#9ca3af"};
 const PICKS_LOCK = new Date("2026-03-19T12:15:00-04:00");
+
+// Draft payment status
+const DRAFT_PAID = {
+  "Bethanie DeRose":true,"Kalvin Kerwin":true,"Charlie Johnson":true,"Derek Bratrud":true,
+  "Franco Matticoli":true,"Gwen Baer":true,"Katie Close":true,"Laura Vidal":true,
+  "Matthew Avila":true,"Mike Thiessen":true,"Sarah Jenkins":true,"Billy Jenkins":true,
+  "Tanay Desai":true,"Lucas Neuteufel":true,
+  "Rob Hunden":false,"Steven Haemmerle":false,
+};
+// Classic-only participants (not in draft)
+const CLASSIC_ONLY = [
+  {name:"Benjamin Pittenger",paid:true},
+  {name:"Patty Tostado",paid:true},
+  {name:"Shawn Gustafson",paid:true},
+];
 
 const REGION_BRACKET = [
   [[[1,16],[8,9]],[[5,12],[4,13]]],
@@ -440,6 +455,7 @@ export default function MarchMadness() {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-3 flex-wrap">
                           <span className="font-semibold">{d.name}</span>
+                          {DRAFT_PAID[d.name]===false && <span className="text-[10px] font-semibold uppercase tracking-wider text-negative bg-negative/10 px-1.5 py-0.5 rounded">Unpaid</span>}
                           {hasPicks ? (
                             <>
                               <span className="text-xs text-text-muted font-mono">{d.alive}/{d.totalPicks} alive</span>
@@ -973,6 +989,19 @@ export default function MarchMadness() {
             </section>
           </div>
         )}
+        {/* ===== CLASSIC ===== */}
+        <div className="mt-10 pt-6 border-t border-border">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">Classic Bracket</h2>
+          <p className="text-xs text-text-muted mb-3">Participants in the classic bracket competition only.</p>
+          <div className="flex flex-wrap gap-2">
+            {CLASSIC_ONLY.map(p=>(
+              <span key={p.name} className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-surface-raised border border-border rounded text-sm text-text-secondary">
+                {p.name}
+                {p.paid ? <span className="w-1.5 h-1.5 rounded-full bg-positive" title="Paid"/> : <span className="text-[10px] font-semibold text-negative">UNPAID</span>}
+              </span>
+            ))}
+          </div>
+        </div>
       </main>
 
       {/* Footer */}
