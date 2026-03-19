@@ -1,6 +1,5 @@
-import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { supabase } from "./supabase";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend as RLegend } from "recharts";
 
 const TEAMS = [
   {name:"Duke",seed:1,region:"East"},{name:"Siena",seed:16,region:"East"},{name:"Ohio State",seed:8,region:"East"},{name:"TCU",seed:9,region:"East"},{name:"St. John's",seed:5,region:"East"},{name:"Northern Iowa",seed:12,region:"East"},{name:"Kansas",seed:4,region:"East"},{name:"CA Baptist",seed:13,region:"East"},{name:"Louisville",seed:6,region:"East"},{name:"South Florida",seed:11,region:"East"},{name:"Michigan State",seed:3,region:"East"},{name:"North Dakota State",seed:14,region:"East"},{name:"UCLA",seed:7,region:"East"},{name:"UCF",seed:10,region:"East"},{name:"UConn",seed:2,region:"East"},{name:"Furman",seed:15,region:"East"},
@@ -216,8 +215,6 @@ export default function MarchMadness() {
   const [showOdds, setShowOdds] = useState(false);
   const [isAdmin, setIsAdmin] = useState(()=>localStorage.getItem("mm_admin")==="1");
   const [selectedUser, setSelectedUser] = useState(()=>localStorage.getItem("mm_user")||"");
-  const [timeline, setTimeline] = useState([]);
-  const [liveGames, setLiveGames] = useState({});
   const locked = Date.now() >= PICKS_LOCK.getTime();
 
   useEffect(() => {
@@ -237,11 +234,6 @@ export default function MarchMadness() {
         setTeamState(s);
       }
       if (drafterRes.data) setDrafters(drafterRes.data.map(r => ({ id: r.id, name: r.name, picks: r.picks || [] })));
-      // Load timeline (table may not exist yet — that's ok)
-      try {
-        const tlRes = await supabase.from("timeline").select("*").order("ts");
-        if (tlRes.data) setTimeline(tlRes.data);
-      } catch(e) { /* timeline table not created yet */ }
       setLoading(false);
     }
     loadData();
@@ -270,221 +262,18 @@ export default function MarchMadness() {
     return () => { supabase.removeChannel(teamChannel); supabase.removeChannel(drafterChannel); };
   }, []);
 
-  // Live scores from NCAA API — polls every 30 seconds
-  useEffect(()=>{
-    // Map NCAA API team names to our team names
-    const NAME_MAP = {
-      // Exact API short names from NCAA
-      "Ohio St.":"Ohio State","Michigan St.":"Michigan State","North Dakota St.":"North Dakota State",
-      "South Fla.":"South Florida","Kennesaw St.":"Kennesaw State","Saint Mary's (CA)":"Saint Mary's",
-      "St. John's (NY)":"St. John's","Saint John's":"St. John's",
-      "Miami (OH)":"M-OH/SMU","Miami (Ohio)":"M-OH/SMU","Miami Ohio":"M-OH/SMU","Miami OH":"M-OH/SMU",
-      "Hawai`i":"Hawai'i","Hawaii":"Hawai'i",
-      "LIU":"Long Island","Long Island University":"Long Island",
-      "Cal Baptist":"CA Baptist","California Baptist":"CA Baptist","Cal Baptist":"CA Baptist",
-      "NDSU":"North Dakota State","N Dakota St":"North Dakota State",
-      "PV A&M":"PV A&M/Lehigh","Prairie View":"PV A&M/Lehigh","Prairie View A&M":"PV A&M/Lehigh",
-      "UNI":"Northern Iowa","N Iowa":"Northern Iowa","Northern Iowa":"Northern Iowa",
-      "Central Florida":"UCF",
-      "Tenn. St.":"Tennessee State","Tennessee St.":"Tennessee State","Tennessee St":"Tennessee State",
-      "SMU":"M-OH/SMU","NC State":"M-OH/SMU",
-      // Handle period-abbreviated names
-      "Villanova":"Villanova","Utah St.":"Utah State","Utah St":"Utah State",
-      "Wright St.":"Wright State","Wright St":"Wright State",
-      "Saint Louis":"Saint Louis","Queens":"Queens",
-    };
-    const resolve = (name) => {
-      if(NAME_MAP[name]) return NAME_MAP[name];
-      const exact = TEAMS.find(t=>t.name===name);
-      if(exact) return exact.name;
-      // Try partial match — strip periods and match
-      const clean = name.replace(/\./g,"").trim();
-      const partial = TEAMS.find(t=>t.name.replace(/\./g,"")=== clean || clean.includes(t.name.replace(/\./g,"")) || t.name.includes(clean));
-      if(partial) return partial.name;
-      return name;
-    };
-
-    async function fetchLive(){
-      try{
-        const res = await fetch(`/api/scores`);
-        if(!res.ok) return;
-        const data = await res.json();
-        const games = data?.games || [];
-        const live = {};
-        games.forEach(g=>{
-          const game = g.game || g;
-          const away = game.away || {};
-          const home = game.home || {};
-          const awayName = resolve(away.names?.short || away.names?.char6 || "");
-          const homeName = resolve(home.names?.short || home.names?.char6 || "");
-          const state = game.gameState;
-          const clock = game.contestClock || "";
-          const period = game.currentPeriod || "";
-          const network = game.network || "";
-          const startTime = game.startTime || "";
-
-          const entry = {
-            state, clock, period, network, startTime,
-            away: {name:awayName, score:away.score||"", seed:away.seed},
-            home: {name:homeName, score:home.score||"", seed:home.seed},
-          };
-          if(awayName) live[awayName] = entry;
-          if(homeName) live[homeName] = entry;
-        });
-        setLiveGames(live);
-      }catch(e){console.error("Live scores fetch error:",e);}
-    }
-    fetchLive();
-    const interval = setInterval(fetchLive, 30000);
-    return ()=>clearInterval(interval);
-  },[]);
-
-  // Auto-score: when a game goes final, update wins/eliminations
-  const processedFinalsRef = useRef(new Set());
-  useEffect(()=>{
-    if(Object.keys(liveGames).length===0) return;
-    const seen = new Set();
-    const updates = [];
-    Object.values(liveGames).forEach(g=>{
-      const key = `${g.away.name}-${g.home.name}`;
-      if(seen.has(key)) return;
-      seen.add(key);
-      if(g.state!=="final") return;
-      if(processedFinalsRef.current.has(key)) return;
-      const awayScore = Number(g.away.score);
-      const homeScore = Number(g.home.score);
-      if(!awayScore && !homeScore) return;
-      const winner = awayScore > homeScore ? g.away.name : g.home.name;
-      const loser = awayScore > homeScore ? g.home.name : g.away.name;
-      if(!teamMap[winner] || !teamMap[loser]) return;
-      processedFinalsRef.current.add(key);
-      updates.push({winner, loser});
-    });
-    if(updates.length===0) return;
-    setTeamState(prev=>{
-      const next = {...prev};
-      updates.forEach(({winner,loser})=>{
-        if(next[loser]?.eliminated) return;
-        const winnerWins = (next[winner]?.wins || 0) + 1;
-        next[winner] = {...next[winner], wins: winnerWins};
-        next[loser] = {...next[loser], eliminated: true};
-        supabase.from("team_states").update({wins:winnerWins}).eq("team_name",winner);
-        supabase.from("team_states").update({eliminated:true}).eq("team_name",loser);
-        logTimeline("elimination", loser, {seed:teamMap[loser]?.seed, region:teamMap[loser]?.region, lost_to:winner});
-      });
-      return next;
-    });
-  },[liveGames, teamMap, logTimeline]);
-
   const teamMap = useMemo(()=>{ const m={}; TEAMS.forEach(t=>{m[t.name]=t;}); return m; },[]);
 
-  const logTimeline = useCallback(async (eventType, teamName, detail, currentScores) => {
-    try {
-      const scoreSnap = {};
-      if(currentScores) currentScores.forEach(s=>{scoreSnap[s.name]={pts:s.pts,alive:s.alive};});
-      const row = {event_type:eventType, team_name:teamName, detail, scores:scoreSnap};
-      const {data} = await supabase.from("timeline").insert(row).select();
-      if(data?.[0]) setTimeline(prev=>[...prev, data[0]]);
-    } catch(e) { /* timeline table may not exist yet */ }
-  },[]);
-
-  // Live badge helper — shows anywhere a team is mentioned
-  function liveBadge(team, compact) {
-    const lg = liveGames[team];
-    if(!lg) return null;
-    const myScore = lg.away.name===team ? lg.away.score : lg.home.score;
-    const oppScore = lg.away.name===team ? lg.home.score : lg.away.score;
-    if(lg.state==="live" || lg.state==="in") return (
-      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-500/10 border border-red-500/30 rounded font-mono font-semibold text-red-600 animate-pulse ${compact?"text-[9px]":"text-[10px]"}`}>
-        LIVE {myScore}-{oppScore}
-        {!compact && lg.period && <span className="text-red-400">{lg.period} {lg.clock}</span>}
-      </span>
-    );
-    if(lg.state==="pre") return (
-      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 bg-surface-raised border border-border rounded font-mono text-text-muted ${compact?"text-[9px]":"text-[10px]"}`}>
-        {lg.startTime}{!compact && lg.network && ` ${lg.network}`}
-      </span>
-    );
-    if(lg.state==="final") return (
-      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 bg-surface-raised border border-border rounded font-mono text-text-muted ${compact?"text-[9px]":"text-[10px]"}`}>
-        F {myScore}-{oppScore}
-      </span>
-    );
-    return null;
-  }
-
-  // logTimeline moved — defined earlier in the component
-
-  // Find opponent of a team in a specific round (1-indexed: 1=R64, 2=R32, etc.)
-  const findOpponent = useCallback((name, round) => {
-    const team = teamMap[name];
-    if(!team || team.region==="N/A") return null;
-    const region = team.region;
-    const path = SEED_PATH[team.seed];
-    if(path===undefined) return null;
-
-    // Rounds 1-4 are within the region
-    if(round>=1 && round<=4) {
-      // In round R, teams whose paths differ only in the last R bits meet
-      // Round 1: differ in bit 0 (XOR mask 1)
-      // Round 2: differ in bits 0-1 (group of 4, XOR mask within group)
-      const groupSize = Math.pow(2, round);
-      const groupStart = Math.floor(path / groupSize) * groupSize;
-      // The opponent survived previous rounds — find the team in the opposing half of this group
-      const halfSize = groupSize / 2;
-      const myHalf = Math.floor((path - groupStart) / halfSize);
-      const oppHalfStart = groupStart + (myHalf === 0 ? halfSize : 0);
-      // Find the surviving team in the opponent's half
-      const regionTeams = TEAMS.filter(t=>t.region===region && t.region!=="N/A");
-      const candidates = regionTeams.filter(t=>{
-        const p = SEED_PATH[t.seed];
-        return p >= oppHalfStart && p < oppHalfStart + halfSize;
-      });
-      // Return the one that's alive with enough wins to be in this round
-      const alive = candidates.filter(t=>{
-        const s = teamState[t.name];
-        return s && !s.eliminated && s.wins >= round - 1;
-      });
-      return alive.length === 1 ? alive[0].name : null;
-    }
-    return null; // Final Four / Final are cross-region, skip auto for now
-  },[teamMap, teamState]);
-
   const setWins = useCallback(async (name, w) => {
-    const prevWins = teamState[name]?.wins || 0;
     setTeamState(p=>({...p,[name]:{...p[name],wins:w}}));
     await supabase.from("team_states").update({ wins: w }).eq("team_name", name);
-
-    // If wins increased, find and eliminate the opponent for each new win round
-    if(w > prevWins) {
-      for(let round = prevWins + 1; round <= w; round++) {
-        const opp = findOpponent(name, round);
-        if(opp && !teamState[opp]?.eliminated) {
-          setTeamState(p=>({...p,[opp]:{...p[opp],eliminated:true}}));
-          await supabase.from("team_states").update({ eliminated: true }).eq("team_name", opp);
-          logTimeline("elimination", opp, {seed: teamMap[opp]?.seed, region: teamMap[opp]?.region, lost_to: name});
-        }
-      }
-    }
-  },[teamState, findOpponent, logTimeline, teamMap]);
+  },[]);
 
   const toggleElim = useCallback(async (name) => {
     const newVal = !teamState[name]?.eliminated;
     setTeamState(p=>({...p,[name]:{...p[name],eliminated:newVal}}));
     await supabase.from("team_states").update({ eliminated: newVal }).eq("team_name", name);
-
-    if(newVal) {
-      // Eliminated: give the opponent a win
-      const round = (teamState[name]?.wins || 0) + 1;
-      const opp = findOpponent(name, round);
-      if(opp && !teamState[opp]?.eliminated) {
-        const oppWins = (teamState[opp]?.wins || 0) + 1;
-        setTeamState(p=>({...p,[opp]:{...p[opp],wins:oppWins}}));
-        await supabase.from("team_states").update({ wins: oppWins }).eq("team_name", opp);
-      }
-      logTimeline("elimination", name, {seed: teamMap[name]?.seed, region: teamMap[name]?.region, lost_to: opp});
-    }
-  },[teamState, findOpponent, logTimeline, teamMap]);
+  },[teamState]);
 
   const setWinProb = useCallback(async (name, prob) => {
     const v = Math.max(0.01, Math.min(0.99, prob));
@@ -564,9 +353,7 @@ export default function MarchMadness() {
     {id:"leaderboard",label:"Leaderboard"},
     {id:"draft",label:"Draft Board"},
     {id:"teams",label:"Teams"},
-    {id:"live",label:"Live"},
     {id:"projections",label:"Projections"},
-    {id:"timeline",label:"Timeline"},
     {id:"analytics",label:"Analytics"},
   ];
 
@@ -717,7 +504,6 @@ export default function MarchMadness() {
                                         {winDots(s.wins)}
                                       </>
                                     )}
-                                    {!s?.eliminated && liveBadge(p, true)}
                                   </span>
                                 );
                               })}
@@ -771,27 +557,12 @@ export default function MarchMadness() {
                 <button onClick={addDrafter} className="bg-accent hover:bg-accent/90 text-surface px-4 py-2 rounded text-sm font-semibold">Add</button>
               </div>
             )}
-            {/* Region Legend */}
-            <div className="flex gap-4 mb-3 text-xs text-text-muted font-mono">
-              {["East","South","West","Midwest"].map(r=>(
-                <span key={r} className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor:REGION_COLORS[r]}}/>{r}</span>
-              ))}
-            </div>
             <div className="overflow-x-auto border border-border rounded-lg">
-              <table className="w-full text-sm table-fixed">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-surface-raised">
-                    <th className="text-left py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted sticky left-0 bg-surface-raised z-10 w-[140px]">Player</th>
-                    {editMode
-                      ? [1,2,3,4,5,6,7,8].map(n=><th key={n} className="text-center py-2.5 px-2 w-[140px] text-xs font-medium uppercase tracking-wider text-text-muted">Pick {n}</th>)
-                      : <>
-                          <th colSpan="8" className="text-center py-2.5 px-2 text-xs font-medium uppercase tracking-wider text-text-muted">
-                            <span className="text-positive">Alive</span>
-                            <span className="text-text-muted mx-2">(by seed)</span>
-                            <span className="text-text-muted/50 ml-4">Eliminated</span>
-                          </th>
-                        </>
-                    }
+                    <th className="text-left py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted sticky left-0 bg-surface-raised z-10">Player</th>
+                    {[1,2,3,4,5,6,7,8].map(n=><th key={n} className="text-center py-2.5 px-2 min-w-[140px] text-xs font-medium uppercase tracking-wider text-text-muted">Pick {n}</th>)}
                     <th className="text-center py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted">Pts</th>
                     <th className="text-center py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted">EV</th>
                     <th className="text-center py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted">Max</th>
@@ -803,19 +574,10 @@ export default function MarchMadness() {
                     const dScore = scores.find(s=>s.id===d.id);
                     const isEven = di % 2 === 0;
                     const isMe = selectedUser && d.name === selectedUser;
-                    // Sort picks: alive by seed (ascending), then eliminated by seed
-                    const sortedPicks = editMode ? d.picks : (()=>{
-                      const alive = d.picks.filter(p=>p && !teamState[p]?.eliminated)
-                        .sort((a,b)=>(teamMap[a]?.seed||99)-(teamMap[b]?.seed||99));
-                      const elim = d.picks.filter(p=>p && teamState[p]?.eliminated)
-                        .sort((a,b)=>(teamMap[a]?.seed||99)-(teamMap[b]?.seed||99));
-                      const empty = d.picks.filter(p=>!p);
-                      return [...alive, ...elim, ...empty].slice(0,8);
-                    })();
                     return (
                       <tr key={d.id} className={`transition-colors hover:bg-surface-hover ${isMe ? "bg-accent/10" : isEven ? "" : "bg-surface-raised/30"}`}>
-                        <td className={`py-2.5 px-3 font-semibold sticky left-0 z-10 w-[140px] truncate ${isMe ? "bg-accent/10 text-accent" : "bg-surface text-text-primary"}`}>{d.name}</td>
-                        {sortedPicks.map((p,pi)=>{
+                        <td className={`py-2.5 px-3 font-semibold sticky left-0 z-10 ${isMe ? "bg-accent/10 text-accent" : "bg-surface text-text-primary"}`}>{d.name}</td>
+                        {d.picks.map((p,pi)=>{
                           const t=teamMap[p]; const s=teamState[p];
                           const elim=s?.eliminated;
                           const regionColor = t ? REGION_COLORS[t.region] : null;
@@ -824,22 +586,22 @@ export default function MarchMadness() {
                               {editMode ? (
                                 <TeamSelect value={p} onChange={v=>updatePick(di,pi,v)} teams={TEAMS.filter(t=>t.region!=="N/A")} />
                               ) : (
-                                <div className={`px-2 py-1.5 text-xs rounded ${
+                                <div className={`px-2 py-1.5 text-xs ${
                                   !p ? "text-text-muted"
-                                  : elim ? "text-text-muted/50 bg-surface-raised/50"
+                                  : elim ? "text-text-muted line-through"
                                   : "text-text-primary"
                                 }`}>
                                   {t && (
-                                    <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{backgroundColor: elim ? "#d1d5db" : regionColor}} />
+                                    <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{backgroundColor: regionColor}} />
                                   )}
-                                  {t && <span className={`font-mono mr-1 ${elim ? "text-text-muted/40" : "text-text-muted"}`}>{t.seed}</span>}
-                                  <span className={elim ? "line-through text-text-muted/40" : s?.wins>=2 ? "text-text-primary font-medium" : ""}>
+                                  {t && <span className="font-mono text-text-muted mr-1">{t.seed}</span>}
+                                  <span className={elim ? "text-text-muted" : s?.wins>=2 ? "text-text-primary font-medium" : ""}>
                                     {p||"\u2014"}
                                   </span>
                                   {t && s && s.wins>0 && !elim && (
                                     <div className="font-mono font-semibold text-accent text-xs mt-0.5">+{t.seed*s.wins}{winDots(s.wins)}</div>
                                   )}
-                                  {t && !elim && <div className="mt-0.5">{liveBadge(p, true)}</div>}
+                                  {elim && <div className="text-negative text-xs mt-0.5 font-mono">OUT</div>}
                                 </div>
                               )}
                             </td>
@@ -912,7 +674,6 @@ export default function MarchMadness() {
                             </span>
                             {s.wins > 0 && !s.eliminated && winDots(s.wins)}
                             {draftedBy.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-accent/60" title={`Drafted by: ${draftedBy.join(", ")}`} />}
-                            {liveBadge(t.name)}
                           </div>
                           {isAdmin && <button onClick={()=>toggleElim(t.name)}
                             className={`text-xs px-1.5 py-0.5 rounded font-mono transition-colors ${
@@ -968,106 +729,6 @@ export default function MarchMadness() {
                 </div>
               </div>
             ))}
-          </div>
-        )}
-
-        {/* ===== LIVE ===== */}
-        {tab==="live" && (
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-semibold uppercase tracking-wider text-text-secondary">Today's Games</h2>
-              <span className="text-xs text-text-muted font-mono">Updates every 30s</span>
-            </div>
-            {(()=>{
-              // Deduplicate games (each game appears twice in liveGames, once per team)
-              const seen = new Set();
-              const games = Object.values(liveGames).filter(g=>{
-                const key = `${g.away.name}-${g.home.name}`;
-                if(seen.has(key)) return false;
-                seen.add(key);
-                return true;
-              });
-              // Sort: live first, then pre, then final
-              const order = {live:0,"in":0,pre:1,final:2};
-              games.sort((a,b)=>(order[a.state]??1)-(order[b.state]??1));
-
-              if(games.length===0) return (
-                <div className="border border-border rounded-lg px-6 py-12 text-center">
-                  <p className="text-text-muted text-sm">No games scheduled for today.</p>
-                  <p className="text-text-muted text-xs mt-1 font-mono">Games will appear here on game days.</p>
-                </div>
-              );
-
-              return (
-                <div className="space-y-3">
-                  {games.map((g,i)=>{
-                    const awayTeam = teamMap[g.away.name];
-                    const homeTeam = teamMap[g.home.name];
-                    const awayDrafters = drafters.filter(d=>d.picks.includes(g.away.name)).map(d=>d.name);
-                    const homeDrafters = drafters.filter(d=>d.picks.includes(g.home.name)).map(d=>d.name);
-                    const isLive = g.state==="live" || g.state==="in";
-                    const isFinal = g.state==="final";
-                    const awayWinning = Number(g.away.score) > Number(g.home.score);
-                    const homeWinning = Number(g.home.score) > Number(g.away.score);
-                    return (
-                      <div key={i} className={`border rounded-lg overflow-hidden ${isLive ? "border-red-500/40 bg-red-500/5" : "border-border"}`}>
-                        {/* Status bar */}
-                        <div className={`px-4 py-1.5 flex items-center justify-between text-xs font-mono ${
-                          isLive ? "bg-red-500/10 text-red-600" : isFinal ? "bg-surface-raised text-text-muted" : "bg-surface-raised text-text-muted"
-                        }`}>
-                          {isLive ? (
-                            <span className="flex items-center gap-1.5 font-semibold"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"/>LIVE — {g.period} {g.clock}</span>
-                          ) : isFinal ? (
-                            <span>FINAL</span>
-                          ) : (
-                            <span>{g.startTime}</span>
-                          )}
-                          {g.network && <span>{g.network}</span>}
-                        </div>
-                        {/* Matchup */}
-                        <div className="px-4 py-3">
-                          {/* Away team */}
-                          <div className={`flex items-center gap-3 py-2 ${isFinal && !awayWinning ? "opacity-50" : ""}`}>
-                            {awayTeam && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{backgroundColor:REGION_COLORS[awayTeam.region]}}/>}
-                            <span className="font-mono text-xs text-text-muted w-5 text-right">{g.away.seed}</span>
-                            <span className={`font-semibold text-sm flex-1 ${isLive && awayWinning ? "text-text-primary" : ""}`}>{g.away.name}</span>
-                            <span className={`font-mono text-xl font-bold w-10 text-right ${isLive && awayWinning ? "text-text-primary" : "text-text-secondary"}`}>{g.away.score||"-"}</span>
-                          </div>
-                          {/* Home team */}
-                          <div className={`flex items-center gap-3 py-2 border-t border-border-subtle ${isFinal && !homeWinning ? "opacity-50" : ""}`}>
-                            {homeTeam && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{backgroundColor:REGION_COLORS[homeTeam.region]}}/>}
-                            <span className="font-mono text-xs text-text-muted w-5 text-right">{g.home.seed}</span>
-                            <span className={`font-semibold text-sm flex-1 ${isLive && homeWinning ? "text-text-primary" : ""}`}>{g.home.name}</span>
-                            <span className={`font-mono text-xl font-bold w-10 text-right ${isLive && homeWinning ? "text-text-primary" : "text-text-secondary"}`}>{g.home.score||"-"}</span>
-                          </div>
-                          {/* Who drafted these teams */}
-                          {(awayDrafters.length>0 || homeDrafters.length>0) && (
-                            <div className="mt-2 pt-2 border-t border-border-subtle flex flex-wrap gap-x-6 gap-y-1">
-                              {awayDrafters.length>0 && (
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-[10px] font-mono text-text-muted">{g.away.name}:</span>
-                                  {awayDrafters.map(n=>(
-                                    <span key={n} className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${selectedUser===n?"bg-accent/20 text-accent font-semibold":"bg-surface-raised text-text-muted"}`}>{n}</span>
-                                  ))}
-                                </div>
-                              )}
-                              {homeDrafters.length>0 && (
-                                <div className="flex items-center gap-1.5 flex-wrap">
-                                  <span className="text-[10px] font-mono text-text-muted">{g.home.name}:</span>
-                                  {homeDrafters.map(n=>(
-                                    <span key={n} className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${selectedUser===n?"bg-accent/20 text-accent font-semibold":"bg-surface-raised text-text-muted"}`}>{n}</span>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              );
-            })()}
           </div>
         )}
 
@@ -1178,156 +839,6 @@ export default function MarchMadness() {
           </div>
         )}
 
-        {/* ===== TIMELINE ===== */}
-        {tab==="timeline" && (()=>{
-          // Build chart data from timeline events
-          const COLORS = ["#c45a20","#2563eb","#16a34a","#dc2626","#d97706","#8b5cf6","#ec4899","#06b6d4","#84cc16","#f97316","#6366f1","#14b8a6","#f43f5e","#a855f7","#22d3ee","#eab308","#64748b","#10b981"];
-          const activeDrafters = scores.filter(d=>d.totalPicks>0);
-          const elimEvents = timeline.filter(e=>e.event_type==="elimination");
-
-          // Points over time chart data
-          const ptsData = [{label:"Start",...Object.fromEntries(activeDrafters.map(d=>[d.name,0]))}];
-          if(elimEvents.length>0){
-            elimEvents.forEach((e,i)=>{
-              const row = {label: e.team_name};
-              if(e.scores){
-                activeDrafters.forEach(d=>{row[d.name]=e.scores[d.name]?.pts??0;});
-              }
-              ptsData.push(row);
-            });
-          } else {
-            // No timeline yet — show current state as single point
-            const row = {label:"Current"};
-            activeDrafters.forEach(d=>{row[d.name]=d.pts;});
-            ptsData.push(row);
-          }
-
-          // Teams remaining per drafter
-          const aliveData = [{label:"Start",...Object.fromEntries(activeDrafters.map(d=>[d.name,d.totalPicks]))}];
-          if(elimEvents.length>0){
-            elimEvents.forEach(e=>{
-              const row = {label:e.team_name};
-              if(e.scores){
-                activeDrafters.forEach(d=>{row[d.name]=e.scores[d.name]?.alive??d.totalPicks;});
-              }
-              aliveData.push(row);
-            });
-          } else {
-            const row = {label:"Current"};
-            activeDrafters.forEach(d=>{row[d.name]=d.alive;});
-            aliveData.push(row);
-          }
-
-          return (
-          <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wider text-text-secondary mb-6">Tournament Timeline</h2>
-
-            {elimEvents.length===0 && (
-              <div className="border border-border rounded-lg px-6 py-8 text-center mb-6">
-                <p className="text-text-muted text-sm">No games have been played yet. Charts will populate as teams are eliminated.</p>
-                <p className="text-text-muted text-xs mt-1 font-mono">When you mark a team as eliminated in the Teams tab, a snapshot is recorded.</p>
-              </div>
-            )}
-
-            {/* Points Over Time */}
-            <section className="mb-8">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-accent mb-3">Points Over Time</h3>
-              <div className="border border-border rounded-lg p-4 bg-surface-raised">
-                <ResponsiveContainer width="100%" height={350}>
-                  <LineChart data={ptsData}>
-                    <XAxis dataKey="label" tick={{fontSize:10}} angle={-30} textAnchor="end" height={60}/>
-                    <YAxis tick={{fontSize:10}}/>
-                    <Tooltip contentStyle={{backgroundColor:"#fff",border:"1px solid #e2e4e8",borderRadius:8,fontSize:12}}/>
-                    <RLegend wrapperStyle={{fontSize:11}}/>
-                    {activeDrafters.map((d,i)=>(
-                      <Line key={d.name} type="monotone" dataKey={d.name} stroke={COLORS[i%COLORS.length]}
-                        strokeWidth={selectedUser===d.name?3:1.5} dot={false}
-                        opacity={selectedUser&&selectedUser!==d.name?0.3:1}/>
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </section>
-
-            {/* Teams Remaining */}
-            <section className="mb-8">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-accent mb-3">Teams Remaining</h3>
-              <div className="border border-border rounded-lg p-4 bg-surface-raised">
-                <ResponsiveContainer width="100%" height={350}>
-                  <LineChart data={aliveData}>
-                    <XAxis dataKey="label" tick={{fontSize:10}} angle={-30} textAnchor="end" height={60}/>
-                    <YAxis tick={{fontSize:10}} domain={[0,8]}/>
-                    <Tooltip contentStyle={{backgroundColor:"#fff",border:"1px solid #e2e4e8",borderRadius:8,fontSize:12}}/>
-                    <RLegend wrapperStyle={{fontSize:11}}/>
-                    {activeDrafters.map((d,i)=>(
-                      <Line key={d.name} type="stepAfter" dataKey={d.name} stroke={COLORS[i%COLORS.length]}
-                        strokeWidth={selectedUser===d.name?3:1.5} dot={false}
-                        opacity={selectedUser&&selectedUser!==d.name?0.3:1}/>
-                    ))}
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </section>
-
-            {/* Elimination Log */}
-            <section className="mb-8">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-accent mb-3">Elimination Log</h3>
-              {elimEvents.length>0 ? (
-                <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
-                  {[...elimEvents].reverse().map((e,i)=>{
-                    const t = teamMap[e.team_name];
-                    const regionColor = REGION_COLORS[t?.region]||"#999";
-                    const affectedDrafters = drafters.filter(d=>d.picks.includes(e.team_name)).map(d=>d.name);
-                    return (
-                      <div key={i} className="px-5 py-3 flex items-center gap-3 hover:bg-surface-hover transition-colors">
-                        <span className="text-xs font-mono text-text-muted w-16 shrink-0">{new Date(e.ts).toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{backgroundColor:regionColor}}/>
-                        <span className="font-semibold text-sm">{e.team_name}</span>
-                        <span className="text-xs font-mono text-text-muted">({t?.seed}) {t?.region}</span>
-                        <div className="flex-1 flex gap-1 flex-wrap justify-end">
-                          {affectedDrafters.map(n=>(
-                            <span key={n} className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${selectedUser===n?"bg-accent/20 text-accent font-semibold":"bg-surface-raised text-text-muted"}`}>{n}</span>
-                          ))}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <p className="text-xs text-text-muted font-mono">No eliminations recorded yet.</p>
-              )}
-            </section>
-
-            {/* Power Rankings (current snapshot) */}
-            <section className="mb-8">
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-accent mb-3">Power Rankings</h3>
-              <p className="text-xs text-text-muted mb-3">Current standings by points, with max potential and teams alive</p>
-              <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
-                {[...scores].filter(d=>d.totalPicks>0).sort((a,b)=>b.pts-a.pts||b.bracketMax-a.bracketMax).map((d,i)=>{
-                  const isMe = selectedUser && d.name===selectedUser;
-                  const maxBar = Math.max(...scores.filter(s=>s.totalPicks>0).map(s=>s.pts+s.bracketMax),1);
-                  return (
-                    <div key={d.name} className={`px-5 py-3 transition-colors ${isMe?"bg-accent/10":""}`}>
-                      <div className="flex items-center gap-3 mb-1.5">
-                        <span className={`font-mono text-sm font-bold w-6 text-right ${i===0?"text-accent":"text-text-muted"}`}>{i+1}</span>
-                        <span className="font-semibold text-sm flex-1">{d.name}</span>
-                        <span className="font-mono text-accent font-bold">{d.pts} pts</span>
-                        <span className="font-mono text-xs text-text-muted">{d.alive}/{d.totalPicks} alive</span>
-                        <span className="font-mono text-xs text-positive">max {d.bracketMax}</span>
-                      </div>
-                      <div className="flex h-2 rounded-full overflow-hidden bg-border ml-9">
-                        <div className="bg-accent rounded-l-full" style={{width:`${d.pts/maxBar*100}%`}}/>
-                        <div className="bg-positive/30" style={{width:`${d.bracketMax/maxBar*100}%`}}/>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          </div>
-          );
-        })()}
-
         {/* ===== ANALYTICS ===== */}
         {tab==="analytics" && (
           <div>
@@ -1387,7 +898,7 @@ export default function MarchMadness() {
                   const total = d.seeds.length || 1;
                   return (
                     <div key={d.name} className="flex items-center gap-3">
-                      <span className="w-36 text-sm font-medium text-right truncate text-text-secondary shrink-0">{d.name}</span>
+                      <span className="w-24 text-sm font-medium text-right truncate text-text-secondary">{d.name}</span>
                       <div className="flex-1 flex h-5 rounded-sm overflow-hidden bg-border">
                         {buckets.filter(b=>b.count>0).map((b,i)=>(
                           <div key={i} className="flex items-center justify-center text-xs font-mono font-medium text-white/90"
@@ -1454,35 +965,34 @@ export default function MarchMadness() {
             <section className="mb-8">
               <h3 className="text-xs font-semibold uppercase tracking-wider text-accent mb-1">Region Concentration</h3>
               <p className="text-xs text-text-muted mb-3">How each drafter's picks are distributed across regions</p>
-              <div className="flex gap-4 mb-3 text-xs text-text-muted font-mono">
-                {["East","South","West","Midwest"].map(r=>(
-                  <span key={r} className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor:REGION_COLORS[r]}}/>{r}</span>
-                ))}
-              </div>
               <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
                 {scores.filter(d=>d.totalPicks>0).map(d=>{
                   const regionCounts = {East:0,South:0,West:0,Midwest:0};
                   d.picks.forEach(p=>{const t=teamMap[p]; if(t&&t.region!=="N/A") regionCounts[t.region]++;});
                   const total = d.totalPicks || 1;
+                  const maxRegion = Object.entries(regionCounts).sort((a,b)=>b[1]-a[1])[0];
                   return (
-                    <div key={d.name} className="px-5 py-2.5 flex items-center gap-3 hover:bg-surface-hover transition-colors">
-                      <span className="w-36 text-sm font-medium truncate shrink-0">{d.name}</span>
-                      <div className="flex-1 flex h-5 rounded-sm overflow-hidden bg-surface-raised">
-                        {["East","South","West","Midwest"].filter(r=>regionCounts[r]>0).map(r=>(
-                          <div key={r} className="flex items-center justify-center text-[10px] font-mono font-semibold text-white"
-                            style={{width:`${regionCounts[r]/total*100}%`,backgroundColor:REGION_COLORS[r]}}>
-                            {regionCounts[r]}
-                          </div>
-                        ))}
-                      </div>
-                      <div className="flex gap-2 shrink-0">
-                        {["East","South","West","Midwest"].map(r=>(
-                          <span key={r} className="text-[10px] font-mono font-medium w-4 text-center" style={{color:regionCounts[r]>0?REGION_COLORS[r]:"#d1d5db"}}>{regionCounts[r]}</span>
-                        ))}
+                    <div key={d.name} className="px-5 py-3 hover:bg-surface-hover transition-colors">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="w-28 text-sm font-medium truncate">{d.name}</span>
+                        <div className="flex-1 flex h-6 rounded-sm overflow-hidden bg-surface-raised">
+                          {["East","South","West","Midwest"].filter(r=>regionCounts[r]>0).map(r=>(
+                            <div key={r} className="flex items-center justify-center text-[10px] font-mono font-semibold text-white"
+                              style={{width:`${regionCounts[r]/total*100}%`,backgroundColor:REGION_COLORS[r]}}>
+                              {regionCounts[r]}
+                            </div>
+                          ))}
+                        </div>
+                        {maxRegion[1]>=3 && <span className="text-[10px] font-mono text-accent font-semibold">{maxRegion[1]}/{total} {maxRegion[0]}</span>}
                       </div>
                     </div>
                   );
                 })}
+                <div className="px-5 py-2 flex gap-4 text-xs text-text-muted font-mono">
+                  {["East","South","West","Midwest"].map(r=>(
+                    <span key={r} className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{backgroundColor:REGION_COLORS[r]}}/>{r}</span>
+                  ))}
+                </div>
               </div>
             </section>
 
@@ -1534,7 +1044,7 @@ export default function MarchMadness() {
                   <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
                     {sorted.map(([name,teams])=>(
                       <div key={name} className="px-5 py-2.5 flex items-center gap-3 hover:bg-surface-hover transition-colors">
-                        <span className="font-semibold text-sm w-36 truncate shrink-0">{name}</span>
+                        <span className="font-semibold text-sm w-28 truncate">{name}</span>
                         <span className="font-mono text-accent font-bold w-4">{teams.length}</span>
                         <div className="flex-1 flex gap-1 flex-wrap">
                           {teams.map((t,ti)=>{
@@ -1564,7 +1074,7 @@ export default function MarchMadness() {
                   const stratColor = dd.length>=6?"text-negative":dd.length>=4?"text-accent":dd.length>=2?"text-positive":"text-ev";
                   return (
                     <div key={d.name} className="px-5 py-3 flex items-center gap-4 flex-wrap hover:bg-surface-hover transition-colors">
-                      <span className="font-semibold text-sm w-36 shrink-0">{d.name}</span>
+                      <span className="font-semibold text-sm w-24">{d.name}</span>
                       <div className="flex-1 flex gap-6 text-xs font-mono flex-wrap">
                         <span className="text-text-muted">{dd.length} underdogs</span>
                         <span className="text-accent">{cinPts} upset pts</span>
