@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend as RLegend } from "recharts";
 
@@ -338,37 +338,41 @@ export default function MarchMadness() {
   },[]);
 
   // Auto-score: when a game goes final, update wins/eliminations
-  const processedFinals = useMemo(()=>new Set(),[]);
+  const processedFinalsRef = useRef(new Set());
   useEffect(()=>{
     if(Object.keys(liveGames).length===0) return;
     const seen = new Set();
+    const updates = [];
     Object.values(liveGames).forEach(g=>{
       const key = `${g.away.name}-${g.home.name}`;
       if(seen.has(key)) return;
       seen.add(key);
       if(g.state!=="final") return;
-      if(processedFinals.has(key)) return;
+      if(processedFinalsRef.current.has(key)) return;
       const awayScore = Number(g.away.score);
       const homeScore = Number(g.home.score);
       if(!awayScore && !homeScore) return;
       const winner = awayScore > homeScore ? g.away.name : g.home.name;
       const loser = awayScore > homeScore ? g.home.name : g.away.name;
-      // Only process if we know both teams and loser isn't already eliminated
       if(!teamMap[winner] || !teamMap[loser]) return;
-      if(teamState[loser]?.eliminated) return;
-      processedFinals.add(key);
-      // Update winner wins and loser elimination
-      const winnerWins = (teamState[winner]?.wins || 0) + 1;
-      setTeamState(p=>({
-        ...p,
-        [winner]:{...p[winner],wins:winnerWins},
-        [loser]:{...p[loser],eliminated:true}
-      }));
-      supabase.from("team_states").update({wins:winnerWins}).eq("team_name",winner);
-      supabase.from("team_states").update({eliminated:true}).eq("team_name",loser);
-      logTimeline("elimination", loser, {seed:teamMap[loser]?.seed, region:teamMap[loser]?.region, lost_to:winner});
+      processedFinalsRef.current.add(key);
+      updates.push({winner, loser});
     });
-  },[liveGames, teamState, teamMap, logTimeline, processedFinals]);
+    if(updates.length===0) return;
+    setTeamState(prev=>{
+      const next = {...prev};
+      updates.forEach(({winner,loser})=>{
+        if(next[loser]?.eliminated) return;
+        const winnerWins = (next[winner]?.wins || 0) + 1;
+        next[winner] = {...next[winner], wins: winnerWins};
+        next[loser] = {...next[loser], eliminated: true};
+        supabase.from("team_states").update({wins:winnerWins}).eq("team_name",winner);
+        supabase.from("team_states").update({eliminated:true}).eq("team_name",loser);
+        logTimeline("elimination", loser, {seed:teamMap[loser]?.seed, region:teamMap[loser]?.region, lost_to:winner});
+      });
+      return next;
+    });
+  },[liveGames, teamMap, logTimeline]);
 
   const teamMap = useMemo(()=>{ const m={}; TEAMS.forEach(t=>{m[t.name]=t;}); return m; },[]);
 
