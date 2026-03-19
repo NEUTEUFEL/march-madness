@@ -197,7 +197,7 @@ export default function MarchMadness() {
   const [editMode, setEditMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showOdds, setShowOdds] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(()=>sessionStorage.getItem("mm_admin")==="1");
+  const [isAdmin, setIsAdmin] = useState(()=>localStorage.getItem("mm_admin")==="1");
   const [selectedUser, setSelectedUser] = useState(()=>localStorage.getItem("mm_user")||"");
   const locked = Date.now() >= PICKS_LOCK.getTime();
 
@@ -369,14 +369,14 @@ export default function MarchMadness() {
               {drafters.map(d=><option key={d.name} value={d.name}>{d.name}</option>)}
             </select>
             {isAdmin ? (
-              <button onClick={()=>{setIsAdmin(false);sessionStorage.removeItem("mm_admin");setEditMode(false);}}
+              <button onClick={()=>{setIsAdmin(false);localStorage.removeItem("mm_admin");setEditMode(false);}}
                 className="px-3 py-1.5 text-xs font-medium border border-accent text-accent rounded hover:bg-accent/10 transition-colors">
                 Admin Mode
               </button>
             ) : (
               <button onClick={()=>{
                 const pin = prompt("Enter admin PIN:");
-                if(pin==="6847"){setIsAdmin(true);sessionStorage.setItem("mm_admin","1");}
+                if(pin==="6847"){setIsAdmin(true);localStorage.setItem("mm_admin","1");}
               }}
                 className="px-3 py-1.5 text-xs font-medium border border-border text-text-muted rounded hover:text-text-secondary hover:border-text-muted transition-colors">
                 Admin
