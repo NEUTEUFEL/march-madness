@@ -198,6 +198,7 @@ export default function MarchMadness() {
   const [loading, setLoading] = useState(true);
   const [showOdds, setShowOdds] = useState(false);
   const [isAdmin, setIsAdmin] = useState(()=>sessionStorage.getItem("mm_admin")==="1");
+  const [selectedUser, setSelectedUser] = useState(()=>localStorage.getItem("mm_user")||"");
   const locked = Date.now() >= PICKS_LOCK.getTime();
 
   useEffect(() => {
@@ -359,20 +360,29 @@ export default function MarchMadness() {
             <p className="text-lg font-semibold text-text-primary mt-0.5">March Madness 2026</p>
             <p className="text-xs text-text-muted mt-0.5 font-mono">Points = Seed &times; Wins</p>
           </div>
-          {isAdmin ? (
-            <button onClick={()=>{setIsAdmin(false);sessionStorage.removeItem("mm_admin");setEditMode(false);}}
-              className="px-3 py-1.5 text-xs font-medium border border-accent text-accent rounded hover:bg-accent/10 transition-colors">
-              Admin Mode
-            </button>
-          ) : (
-            <button onClick={()=>{
-              const pin = prompt("Enter admin PIN:");
-              if(pin==="6847"){setIsAdmin(true);sessionStorage.setItem("mm_admin","1");}
-            }}
-              className="px-3 py-1.5 text-xs font-medium border border-border text-text-muted rounded hover:text-text-secondary hover:border-text-muted transition-colors">
-              Admin
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            <select value={selectedUser} onChange={e=>{setSelectedUser(e.target.value);localStorage.setItem("mm_user",e.target.value);}}
+              className={`bg-surface-raised border rounded px-3 py-1.5 text-xs font-medium focus:outline-none focus:border-accent cursor-pointer ${
+                selectedUser ? "border-accent text-accent" : "border-border text-text-muted"
+              }`}>
+              <option value="">Who am I?</option>
+              {drafters.map(d=><option key={d.name} value={d.name}>{d.name}</option>)}
+            </select>
+            {isAdmin ? (
+              <button onClick={()=>{setIsAdmin(false);sessionStorage.removeItem("mm_admin");setEditMode(false);}}
+                className="px-3 py-1.5 text-xs font-medium border border-accent text-accent rounded hover:bg-accent/10 transition-colors">
+                Admin Mode
+              </button>
+            ) : (
+              <button onClick={()=>{
+                const pin = prompt("Enter admin PIN:");
+                if(pin==="6847"){setIsAdmin(true);sessionStorage.setItem("mm_admin","1");}
+              }}
+                className="px-3 py-1.5 text-xs font-medium border border-border text-text-muted rounded hover:text-text-secondary hover:border-text-muted transition-colors">
+                Admin
+              </button>
+            )}
+          </div>
         </div>
       </header>
 
@@ -413,9 +423,10 @@ export default function MarchMadness() {
                 const evW = maxPossible > 0 ? (d.ev/maxPossible*100) : 0;
                 const penalty = d.naiveMax - d.bracketMax;
                 const hasPicks = d.totalPicks > 0;
+                const isMe = selectedUser && d.name === selectedUser;
                 return (
                   <div key={d.name} className={`px-5 py-4 transition-colors ${
-                    hasPicks ? "hover:bg-surface-hover" : "opacity-50"
+                    isMe ? "bg-accent/10 border-l-2 border-l-accent" : hasPicks ? "hover:bg-surface-hover" : "opacity-50"
                   }`}>
                     <div className="flex items-start gap-4">
                       {/* Rank */}
@@ -545,9 +556,10 @@ export default function MarchMadness() {
                   {drafters.map((d,di)=>{
                     const dScore = scores.find(s=>s.id===d.id);
                     const isEven = di % 2 === 0;
+                    const isMe = selectedUser && d.name === selectedUser;
                     return (
-                      <tr key={d.id} className={`transition-colors hover:bg-surface-hover ${isEven ? "" : "bg-surface-raised/30"}`}>
-                        <td className={`py-2.5 px-3 font-semibold text-text-primary sticky left-0 z-10 ${isEven ? "bg-surface" : "bg-surface"}`}>{d.name}</td>
+                      <tr key={d.id} className={`transition-colors hover:bg-surface-hover ${isMe ? "bg-accent/10" : isEven ? "" : "bg-surface-raised/30"}`}>
+                        <td className={`py-2.5 px-3 font-semibold sticky left-0 z-10 ${isMe ? "bg-accent/10 text-accent" : "bg-surface text-text-primary"}`}>{d.name}</td>
                         {d.picks.map((p,pi)=>{
                           const t=teamMap[p]; const s=teamState[p];
                           const elim=s?.eliminated;
@@ -630,10 +642,11 @@ export default function MarchMadness() {
                     const draftedBy = drafters.filter(d=>d.picks.includes(t.name)).map(d=>d.name);
                     const avgWins = simResults[t.name] || 0;
                     const evPts = Math.round(t.seed * avgWins * 10) / 10;
+                    const isMine = selectedUser && draftedBy.includes(selectedUser);
                     return (
                       <div key={t.name}
                         className={`p-3 transition-colors ${
-                          s.eliminated ? "bg-surface opacity-50" : "bg-surface hover:bg-surface-hover"
+                          s.eliminated ? "bg-surface opacity-50" : isMine ? "bg-accent/5 hover:bg-accent/10" : "bg-surface hover:bg-surface-hover"
                         }`}
                         style={{borderLeft: `3px solid ${REGION_COLORS[region]}22`}}>
                         <div className="flex items-center justify-between">
@@ -689,7 +702,7 @@ export default function MarchMadness() {
                         {draftedBy.length > 0 && (
                           <div className="mt-1.5 flex flex-wrap gap-1">
                             {draftedBy.map(n=>(
-                              <span key={n} className="text-[10px] font-mono text-text-muted bg-surface-raised px-1.5 py-0.5 rounded-sm">{n}</span>
+                              <span key={n} className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${selectedUser&&n===selectedUser?"bg-accent/20 text-accent font-semibold":"text-text-muted bg-surface-raised"}`}>{n}</span>
                             ))}
                           </div>
                         )}
@@ -717,8 +730,9 @@ export default function MarchMadness() {
               <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
                 {[...scores].filter(d=>d.totalPicks>0).sort((a,b)=>b.ev-a.ev).map((d,i)=>{
                   const maxEV = Math.max(...scores.filter(s=>s.totalPicks>0).map(s=>s.ev), 1);
+                  const isMe = selectedUser && d.name === selectedUser;
                   return (
-                    <div key={d.name} className="px-5 py-3 hover:bg-surface-hover transition-colors">
+                    <div key={d.name} className={`px-5 py-3 transition-colors ${isMe ? "bg-accent/10 border-l-2 border-l-accent" : "hover:bg-surface-hover"}`}>
                       <div className="flex items-center gap-3 mb-2">
                         <span className={`font-mono text-sm font-bold w-6 text-right ${i===0?"text-ev":"text-text-muted"}`}>{i+1}</span>
                         <span className="font-semibold flex-1">{d.name}</span>
