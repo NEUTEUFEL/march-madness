@@ -197,6 +197,7 @@ export default function MarchMadness() {
   const [editMode, setEditMode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showOdds, setShowOdds] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(()=>sessionStorage.getItem("mm_admin")==="1");
   const locked = Date.now() >= PICKS_LOCK.getTime();
 
   useEffect(() => {
@@ -352,10 +353,26 @@ export default function MarchMadness() {
 
       {/* Masthead */}
       <header className="bg-surface-raised border-b border-border">
-        <div className="max-w-7xl mx-auto px-6 py-5">
-          <h1 className="text-xs font-semibold tracking-[0.2em] uppercase text-text-secondary">Hunden Partners</h1>
-          <p className="text-lg font-semibold text-text-primary mt-0.5">March Madness 2026</p>
-          <p className="text-xs text-text-muted mt-0.5 font-mono">Points = Seed &times; Wins</p>
+        <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
+          <div>
+            <h1 className="text-xs font-semibold tracking-[0.2em] uppercase text-text-secondary">Hunden Partners</h1>
+            <p className="text-lg font-semibold text-text-primary mt-0.5">March Madness 2026</p>
+            <p className="text-xs text-text-muted mt-0.5 font-mono">Points = Seed &times; Wins</p>
+          </div>
+          {isAdmin ? (
+            <button onClick={()=>{setIsAdmin(false);sessionStorage.removeItem("mm_admin");setEditMode(false);}}
+              className="px-3 py-1.5 text-xs font-medium border border-accent text-accent rounded hover:bg-accent/10 transition-colors">
+              Admin Mode
+            </button>
+          ) : (
+            <button onClick={()=>{
+              const pin = prompt("Enter admin PIN:");
+              if(pin==="6847"){setIsAdmin(true);sessionStorage.setItem("mm_admin","1");}
+            }}
+              className="px-3 py-1.5 text-xs font-medium border border-border text-text-muted rounded hover:text-text-secondary hover:border-text-muted transition-colors">
+              Admin
+            </button>
+          )}
         </div>
       </header>
 
@@ -492,7 +509,7 @@ export default function MarchMadness() {
               <div className="flex gap-2 items-center">
                 {locked ? (
                   <span className="text-xs font-mono text-text-muted uppercase tracking-wider">Picks Locked</span>
-                ) : (
+                ) : isAdmin ? (
                   <button onClick={()=>setEditMode(!editMode)}
                     className={`px-3 py-1.5 text-xs font-medium border rounded transition-colors ${
                       editMode
@@ -501,7 +518,7 @@ export default function MarchMadness() {
                     }`}>
                     {editMode?"Done Editing":"Edit Picks"}
                   </button>
-                )}
+                ) : null}
               </div>
             </div>
             {editMode && !locked && (
@@ -584,15 +601,15 @@ export default function MarchMadness() {
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-sm font-semibold uppercase tracking-wider text-text-secondary">Tournament Teams</h2>
               <div className="flex items-center gap-4">
-                <button onClick={()=>setShowOdds(!showOdds)}
+                {isAdmin && <button onClick={()=>setShowOdds(!showOdds)}
                   className={`px-3 py-1.5 text-xs font-medium border rounded transition-colors ${
                     showOdds
                       ? "bg-ev text-surface border-ev"
                       : "border-border text-text-secondary hover:text-text-primary hover:border-text-muted"
                   }`}>
                   {showOdds ? "Hide Odds" : "Show Odds"}
-                </button>
-                <p className="text-xs text-text-muted">Click wins to update</p>
+                </button>}
+                {isAdmin && <p className="text-xs text-text-muted">Click wins to update</p>}
               </div>
             </div>
             {showOdds && (
@@ -628,24 +645,32 @@ export default function MarchMadness() {
                             {s.wins > 0 && !s.eliminated && winDots(s.wins)}
                             {draftedBy.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-accent/60" title={`Drafted by: ${draftedBy.join(", ")}`} />}
                           </div>
-                          <button onClick={()=>toggleElim(t.name)}
+                          {isAdmin && <button onClick={()=>toggleElim(t.name)}
                             className={`text-xs px-1.5 py-0.5 rounded font-mono transition-colors ${
                               s.eliminated
                                 ? "text-positive hover:bg-positive/10"
                                 : "text-text-muted hover:text-negative hover:bg-negative/10"
                             }`}>
                             {s.eliminated?"\u21A9":"\u2715"}
-                          </button>
+                          </button>}
                         </div>
                         <div className="flex items-center gap-1.5 mt-2">
                           <span className="text-xs text-text-muted font-mono">W</span>
                           <div className="flex gap-0.5">
                             {[0,1,2,3,4,5,6].map(w=>(
+                              isAdmin ? (
                               <button key={w} onClick={()=>setWins(t.name,w)}
                                 className={`w-5 h-5 rounded-sm text-xs font-mono font-medium transition-all ${
                                   s.wins===w ? "bg-accent text-surface"
                                   : w <= s.wins ? "bg-accent/30 text-accent" : "bg-surface-raised text-text-muted hover:bg-surface-hover"
                                 }`}>{w}</button>
+                              ) : (
+                              <span key={w}
+                                className={`w-5 h-5 rounded-sm text-xs font-mono font-medium flex items-center justify-center ${
+                                  s.wins===w ? "bg-accent text-surface"
+                                  : w <= s.wins ? "bg-accent/30 text-accent" : "bg-surface-raised text-text-muted"
+                                }`}>{w}</span>
+                              )
                             ))}
                           </div>
                           {pts>0 && <span className="font-mono text-accent text-xs font-semibold ml-auto">{pts}</span>}
