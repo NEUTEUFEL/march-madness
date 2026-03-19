@@ -217,6 +217,7 @@ export default function MarchMadness() {
   const [isAdmin, setIsAdmin] = useState(()=>localStorage.getItem("mm_admin")==="1");
   const [selectedUser, setSelectedUser] = useState(()=>localStorage.getItem("mm_user")||"");
   const [timeline, setTimeline] = useState([]);
+  const [liveGames, setLiveGames] = useState({});
   const locked = Date.now() >= PICKS_LOCK.getTime();
 
   useEffect(() => {
@@ -267,7 +268,92 @@ export default function MarchMadness() {
     return () => { supabase.removeChannel(teamChannel); supabase.removeChannel(drafterChannel); };
   }, []);
 
+  // Live scores from NCAA API — polls every 30 seconds
+  useEffect(()=>{
+    // Map NCAA API team names to our team names
+    const NAME_MAP = {
+      "St. John's (NY)":"St. John's","Saint John's":"St. John's","St. John's":"St. John's",
+      "Miami (OH)":"M-OH/SMU","Miami (Ohio)":"M-OH/SMU","Miami Ohio":"M-OH/SMU",
+      "Hawai`i":"Hawai'i","Hawaii":"Hawai'i",
+      "LIU":"Long Island","Long Island University":"Long Island",
+      "Cal Baptist":"CA Baptist","California Baptist":"CA Baptist",
+      "NDSU":"North Dakota State","N Dakota St":"North Dakota State",
+      "PV A&M":"PV A&M/Lehigh","Prairie View":"PV A&M/Lehigh","Prairie View A&M":"PV A&M/Lehigh",
+      "UNI":"Northern Iowa","N Iowa":"Northern Iowa",
+      "UCSF":"UCF","Central Florida":"UCF",
+      "Tenn. St.":"Tennessee State","Tennessee St.":"Tennessee State","Tennessee St":"Tennessee State",
+      "Kennesaw St.":"Kennesaw State","Kennesaw St":"Kennesaw State",
+      "SMU":"M-OH/SMU",
+      "NC State":"M-OH/SMU", // play-in opponent
+    };
+    const resolve = (name) => NAME_MAP[name] || TEAMS.find(t=>t.name===name)?.name || TEAMS.find(t=>name.includes(t.name))?.name || name;
+
+    async function fetchLive(){
+      try{
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth()+1).padStart(2,"0");
+        const d = String(now.getDate()).padStart(2,"0");
+        const res = await fetch(`https://ncaa-api.henrygd.me/scoreboard/basketball-men/d1/${y}/${m}/${d}`);
+        if(!res.ok) return;
+        const data = await res.json();
+        const games = data?.games || [];
+        const live = {};
+        games.forEach(g=>{
+          const game = g.game || g;
+          const away = game.away || {};
+          const home = game.home || {};
+          const awayName = resolve(away.names?.short || away.names?.char6 || "");
+          const homeName = resolve(home.names?.short || home.names?.char6 || "");
+          const state = game.gameState;
+          const clock = game.contestClock || "";
+          const period = game.currentPeriod || "";
+          const network = game.network || "";
+          const startTime = game.startTime || "";
+
+          const entry = {
+            state, clock, period, network, startTime,
+            away: {name:awayName, score:away.score||"", seed:away.seed},
+            home: {name:homeName, score:home.score||"", seed:home.seed},
+          };
+          if(awayName) live[awayName] = entry;
+          if(homeName) live[homeName] = entry;
+        });
+        setLiveGames(live);
+      }catch(e){console.error("Live scores fetch error:",e);}
+    }
+    fetchLive();
+    const interval = setInterval(fetchLive, 30000);
+    return ()=>clearInterval(interval);
+  },[]);
+
   const teamMap = useMemo(()=>{ const m={}; TEAMS.forEach(t=>{m[t.name]=t;}); return m; },[]);
+
+  // Live badge component — shows anywhere a team is mentioned
+  const LiveBadge = useCallback(({team, compact})=>{
+    const lg = liveGames[team];
+    if(!lg) return null;
+    const myScore = lg.away.name===team ? lg.away.score : lg.home.score;
+    const oppScore = lg.away.name===team ? lg.home.score : lg.away.score;
+    const oppName = lg.away.name===team ? lg.home.name : lg.away.name;
+    if(lg.state==="live" || lg.state==="in") return (
+      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-500/10 border border-red-500/30 rounded font-mono font-semibold text-red-600 animate-pulse ${compact?"text-[9px]":"text-[10px]"}`}>
+        LIVE {myScore}-{oppScore}
+        {!compact && lg.period && <span className="text-red-400">{lg.period} {lg.clock}</span>}
+      </span>
+    );
+    if(lg.state==="pre") return (
+      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 bg-surface-raised border border-border rounded font-mono text-text-muted ${compact?"text-[9px]":"text-[10px]"}`}>
+        {lg.startTime}{!compact && lg.network && ` ${lg.network}`}
+      </span>
+    );
+    if(lg.state==="final") return (
+      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 bg-surface-raised border border-border rounded font-mono text-text-muted ${compact?"text-[9px]":"text-[10px]"}`}>
+        F {myScore}-{oppScore}
+      </span>
+    );
+    return null;
+  },[liveGames]);
 
   const logTimeline = useCallback(async (eventType, teamName, detail, currentScores) => {
     const scoreSnap = {};
@@ -426,6 +512,7 @@ export default function MarchMadness() {
     {id:"leaderboard",label:"Leaderboard"},
     {id:"draft",label:"Draft Board"},
     {id:"teams",label:"Teams"},
+    {id:"live",label:"Live"},
     {id:"projections",label:"Projections"},
     {id:"timeline",label:"Timeline"},
     {id:"analytics",label:"Analytics"},
@@ -578,6 +665,7 @@ export default function MarchMadness() {
                                         {winDots(s.wins)}
                                       </>
                                     )}
+                                    {!s?.eliminated && <LiveBadge team={p} compact/>}
                                   </span>
                                 );
                               })}
@@ -699,6 +787,7 @@ export default function MarchMadness() {
                                   {t && s && s.wins>0 && !elim && (
                                     <div className="font-mono font-semibold text-accent text-xs mt-0.5">+{t.seed*s.wins}{winDots(s.wins)}</div>
                                   )}
+                                  {t && !elim && <div className="mt-0.5"><LiveBadge team={p} compact/></div>}
                                 </div>
                               )}
                             </td>
@@ -771,6 +860,7 @@ export default function MarchMadness() {
                             </span>
                             {s.wins > 0 && !s.eliminated && winDots(s.wins)}
                             {draftedBy.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-accent/60" title={`Drafted by: ${draftedBy.join(", ")}`} />}
+                            <LiveBadge team={t.name}/>
                           </div>
                           {isAdmin && <button onClick={()=>toggleElim(t.name)}
                             className={`text-xs px-1.5 py-0.5 rounded font-mono transition-colors ${
@@ -826,6 +916,106 @@ export default function MarchMadness() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* ===== LIVE ===== */}
+        {tab==="live" && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-text-secondary">Today's Games</h2>
+              <span className="text-xs text-text-muted font-mono">Updates every 30s</span>
+            </div>
+            {(()=>{
+              // Deduplicate games (each game appears twice in liveGames, once per team)
+              const seen = new Set();
+              const games = Object.values(liveGames).filter(g=>{
+                const key = `${g.away.name}-${g.home.name}`;
+                if(seen.has(key)) return false;
+                seen.add(key);
+                return true;
+              });
+              // Sort: live first, then pre, then final
+              const order = {live:0,"in":0,pre:1,final:2};
+              games.sort((a,b)=>(order[a.state]??1)-(order[b.state]??1));
+
+              if(games.length===0) return (
+                <div className="border border-border rounded-lg px-6 py-12 text-center">
+                  <p className="text-text-muted text-sm">No games scheduled for today.</p>
+                  <p className="text-text-muted text-xs mt-1 font-mono">Games will appear here on game days.</p>
+                </div>
+              );
+
+              return (
+                <div className="space-y-3">
+                  {games.map((g,i)=>{
+                    const awayTeam = teamMap[g.away.name];
+                    const homeTeam = teamMap[g.home.name];
+                    const awayDrafters = drafters.filter(d=>d.picks.includes(g.away.name)).map(d=>d.name);
+                    const homeDrafters = drafters.filter(d=>d.picks.includes(g.home.name)).map(d=>d.name);
+                    const isLive = g.state==="live" || g.state==="in";
+                    const isFinal = g.state==="final";
+                    const awayWinning = Number(g.away.score) > Number(g.home.score);
+                    const homeWinning = Number(g.home.score) > Number(g.away.score);
+                    return (
+                      <div key={i} className={`border rounded-lg overflow-hidden ${isLive ? "border-red-500/40 bg-red-500/5" : "border-border"}`}>
+                        {/* Status bar */}
+                        <div className={`px-4 py-1.5 flex items-center justify-between text-xs font-mono ${
+                          isLive ? "bg-red-500/10 text-red-600" : isFinal ? "bg-surface-raised text-text-muted" : "bg-surface-raised text-text-muted"
+                        }`}>
+                          {isLive ? (
+                            <span className="flex items-center gap-1.5 font-semibold"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"/>LIVE — {g.period} {g.clock}</span>
+                          ) : isFinal ? (
+                            <span>FINAL</span>
+                          ) : (
+                            <span>{g.startTime}</span>
+                          )}
+                          {g.network && <span>{g.network}</span>}
+                        </div>
+                        {/* Matchup */}
+                        <div className="px-4 py-3">
+                          {/* Away team */}
+                          <div className={`flex items-center gap-3 py-2 ${isFinal && !awayWinning ? "opacity-50" : ""}`}>
+                            {awayTeam && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{backgroundColor:REGION_COLORS[awayTeam.region]}}/>}
+                            <span className="font-mono text-xs text-text-muted w-5 text-right">{g.away.seed}</span>
+                            <span className={`font-semibold text-sm flex-1 ${isLive && awayWinning ? "text-text-primary" : ""}`}>{g.away.name}</span>
+                            <span className={`font-mono text-xl font-bold w-10 text-right ${isLive && awayWinning ? "text-text-primary" : "text-text-secondary"}`}>{g.away.score||"-"}</span>
+                          </div>
+                          {/* Home team */}
+                          <div className={`flex items-center gap-3 py-2 border-t border-border-subtle ${isFinal && !homeWinning ? "opacity-50" : ""}`}>
+                            {homeTeam && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{backgroundColor:REGION_COLORS[homeTeam.region]}}/>}
+                            <span className="font-mono text-xs text-text-muted w-5 text-right">{g.home.seed}</span>
+                            <span className={`font-semibold text-sm flex-1 ${isLive && homeWinning ? "text-text-primary" : ""}`}>{g.home.name}</span>
+                            <span className={`font-mono text-xl font-bold w-10 text-right ${isLive && homeWinning ? "text-text-primary" : "text-text-secondary"}`}>{g.home.score||"-"}</span>
+                          </div>
+                          {/* Who drafted these teams */}
+                          {(awayDrafters.length>0 || homeDrafters.length>0) && (
+                            <div className="mt-2 pt-2 border-t border-border-subtle flex flex-wrap gap-x-6 gap-y-1">
+                              {awayDrafters.length>0 && (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-[10px] font-mono text-text-muted">{g.away.name}:</span>
+                                  {awayDrafters.map(n=>(
+                                    <span key={n} className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${selectedUser===n?"bg-accent/20 text-accent font-semibold":"bg-surface-raised text-text-muted"}`}>{n}</span>
+                                  ))}
+                                </div>
+                              )}
+                              {homeDrafters.length>0 && (
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-[10px] font-mono text-text-muted">{g.home.name}:</span>
+                                  {homeDrafters.map(n=>(
+                                    <span key={n} className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${selectedUser===n?"bg-accent/20 text-accent font-semibold":"bg-surface-raised text-text-muted"}`}>{n}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
 
