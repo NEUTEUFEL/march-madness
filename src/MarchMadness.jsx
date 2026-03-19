@@ -11,6 +11,17 @@ const TEAMS = [
 ];
 
 const REGION_COLORS = {East:"#2563eb",South:"#dc2626",West:"#16a34a",Midwest:"#d97706","N/A":"#9ca3af"};
+const SHORT_NAMES = {
+  "North Carolina":"UNC","Michigan State":"MSU","North Dakota State":"NDSU",
+  "South Florida":"USF","Tennessee State":"Tenn St","Kennesaw State":"Kennesaw",
+  "Ohio State":"Ohio St","Saint Mary's":"St Mary's","CA Baptist":"Cal Baptist",
+  "PV A&M/Lehigh":"PV A&M","Long Island":"LIU","Iowa State":"Iowa St",
+  "Texas Tech":"Tex Tech","Wright State":"Wright St","Santa Clara":"S Clara",
+  "Saint Louis":"St Louis","Utah State":"Utah St","Tennessee":"Tenn",
+  "High Point":"High Pt","Northern Iowa":"N Iowa","M-OH/SMU":"Miami OH",
+  "Vanderbilt":"Vandy",
+};
+const sn = (name) => SHORT_NAMES[name] || name;
 const PICKS_LOCK = new Date("2026-03-19T12:15:00-04:00");
 
 // Draft payment status
@@ -620,7 +631,7 @@ export default function MarchMadness() {
                   <tr className="border-b border-border bg-surface-raised">
                     <th className="text-left py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted sticky left-0 bg-surface-raised z-10 w-[150px]">Player</th>
                     <th className="text-left py-2.5 px-1 text-xs font-medium uppercase tracking-wider text-text-muted w-[100px]">Status</th>
-                    {[1,2,3,4,5,6,7,8].map(n=><th key={n} className="text-center py-2.5 px-2 min-w-[130px] text-xs font-medium uppercase tracking-wider text-text-muted">{editMode ? `Pick ${n}` : n}</th>)}
+                    {[1,2,3,4,5,6,7,8].map(n=><th key={n} className="text-center py-2 px-0.5 w-[100px] text-xs font-medium uppercase tracking-wider text-text-muted">{editMode ? `Pick ${n}` : n}</th>)}
                     <th className="text-center py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted">Pts</th>
                     <th className="text-center py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted">Max</th>
                     {editMode && <th className="w-8"></th>}
@@ -638,14 +649,14 @@ export default function MarchMadness() {
                     const aliveCount = dScore?.alive || 0;
                     const elimCount = (dScore?.totalPicks || 0) - aliveCount;
                     const totalPicks = dScore?.totalPicks || 0;
-                    // Sort: live games first, then won (has wins), then yet to play, then eliminated
+                    // Sort: playing > waiting > won > eliminated (forward-looking left side)
                     const sortedPicks = editMode ? d.picks : (() => {
                       const playing = d.picks.filter(p => p && !teamState[p]?.eliminated && liveByTeam[p] && (liveByTeam[p].state === "live" || liveByTeam[p].state === "in"));
+                      const waiting = d.picks.filter(p => p && !teamState[p]?.eliminated && !playing.includes(p) && (teamState[p]?.wins || 0) === 0);
                       const won = d.picks.filter(p => p && !teamState[p]?.eliminated && !playing.includes(p) && (teamState[p]?.wins || 0) > 0);
-                      const waiting = d.picks.filter(p => p && !teamState[p]?.eliminated && !playing.includes(p) && !won.includes(p));
                       const elim = d.picks.filter(p => p && teamState[p]?.eliminated);
                       const empty = d.picks.filter(p => !p);
-                      return [...playing, ...won, ...waiting, ...elim, ...empty].slice(0, 8);
+                      return [...playing, ...waiting, ...won, ...elim, ...empty].slice(0, 8);
                     })();
                     return (
                       <tr key={d.id} className={`transition-colors hover:bg-surface-hover ${isMe ? "bg-accent/10" : isEven ? "" : "bg-surface-raised/30"}`}>
@@ -671,46 +682,32 @@ export default function MarchMadness() {
                           const myScore = lg ? (lg.away.name === p ? lg.away.score : lg.home.score) : "";
                           const oppScore = lg ? (lg.away.name === p ? lg.home.score : lg.away.score) : "";
                           return (
-                            <td key={pi} className="py-1 px-1 text-center">
+                            <td key={pi} className="py-0.5 px-0.5 text-center">
                               {editMode ? (
                                 <TeamSelect value={p} onChange={v=>updatePick(di,pi,v)} teams={TEAMS.filter(t=>t.region!=="N/A")} />
                               ) : !p ? (
-                                <div className="px-2 py-2 text-xs text-text-muted">{"\u2014"}</div>
+                                <div className="px-1 py-1.5 text-[10px] text-text-muted">{"\u2014"}</div>
                               ) : elim ? (
-                                <div className="px-2 py-2 text-xs rounded bg-gray-900 text-white/80">
-                                  <span className="font-mono mr-1 text-white/40">{t?.seed}</span>
-                                  <span className="line-through">{p}</span>
+                                <div className="px-1 py-1.5 text-[10px] rounded bg-gray-900 text-white/80 leading-tight">
+                                  <span className="font-mono mr-0.5 text-white/40">{t?.seed}</span>
+                                  <span className="line-through">{sn(p)}</span>
                                 </div>
                               ) : isPlaying ? (
-                                <div className="px-2 py-2 text-xs rounded border-2 border-red-400 bg-red-50">
-                                  <div className="flex items-center justify-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{backgroundColor: regionColor}} />
-                                    <span className="font-mono text-text-muted">{t?.seed}</span>
-                                    <span className="font-semibold">{p}</span>
-                                  </div>
-                                  <div className="font-mono font-bold text-red-600 text-xs mt-0.5 animate-pulse">
-                                    LIVE {myScore}-{oppScore}
-                                  </div>
-                                  {lg.period && <div className="text-[9px] font-mono text-red-400">{lg.period} {lg.clock}</div>}
+                                <div className="px-1 py-1 text-[10px] rounded border-2 border-red-400 bg-red-50 leading-tight">
+                                  <div><span className="font-mono text-text-muted">{t?.seed}</span> <span className="font-semibold">{sn(p)}</span></div>
+                                  <div className="font-mono font-bold text-red-600 animate-pulse">{myScore}-{oppScore}</div>
+                                  {lg.period && <div className="text-[8px] font-mono text-red-400">{lg.period} {lg.clock}</div>}
                                 </div>
                               ) : hasWon ? (
-                                <div className="px-2 py-2 text-xs rounded bg-green-50 border border-green-200">
-                                  <div className="flex items-center justify-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full" style={{backgroundColor: regionColor}} />
-                                    <span className="font-mono text-green-600">{t?.seed}</span>
-                                    <span className="font-semibold text-green-800">{p}</span>
-                                  </div>
-                                  <div className="font-mono font-semibold text-green-600 text-xs mt-0.5">+{t.seed*s.wins} {winDots(s.wins)}</div>
+                                <div className="px-1 py-1.5 text-[10px] rounded bg-green-50 border border-green-200 leading-tight">
+                                  <div><span className="font-mono text-green-600">{t?.seed}</span> <span className="font-semibold text-green-800">{sn(p)}</span></div>
+                                  <div className="font-mono font-semibold text-green-600">+{t.seed*s.wins}</div>
                                 </div>
                               ) : (
-                                <div className="px-2 py-2 text-xs rounded bg-surface-raised">
-                                  <div className="flex items-center justify-center gap-1">
-                                    <span className="w-1.5 h-1.5 rounded-full" style={{backgroundColor: regionColor}} />
-                                    <span className="font-mono text-text-muted">{t?.seed}</span>
-                                    <span className="text-text-primary">{p}</span>
-                                  </div>
+                                <div className="px-1 py-1.5 text-[10px] rounded bg-surface-raised leading-tight">
+                                  <div><span className="font-mono text-text-muted">{t?.seed}</span> <span className="text-text-primary">{sn(p)}</span></div>
                                   {lg && lg.state === "pre" && (
-                                    <div className="text-[9px] font-mono text-text-muted mt-0.5">{lg.startTime}</div>
+                                    <div className="text-[8px] font-mono text-text-muted">{lg.startTime}</div>
                                   )}
                                 </div>
                               )}
