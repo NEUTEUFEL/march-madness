@@ -649,13 +649,28 @@ export default function MarchMadness() {
                     const aliveCount = dScore?.alive || 0;
                     const elimCount = (dScore?.totalPicks || 0) - aliveCount;
                     const totalPicks = dScore?.totalPicks || 0;
-                    // Sort: live > upcoming > won (advanced) > eliminated
+                    // Sort: live > upcoming (by game time) > advanced > eliminated
                     const sortedPicks = editMode ? d.picks : (() => {
                       const playing = d.picks.filter(p => p && !teamState[p]?.eliminated && liveByTeam[p] && (liveByTeam[p].state === "live" || liveByTeam[p].state === "in"));
                       const upcoming = d.picks.filter(p => p && !teamState[p]?.eliminated && !playing.includes(p) && (teamState[p]?.wins || 0) === 0);
                       const advanced = d.picks.filter(p => p && !teamState[p]?.eliminated && !playing.includes(p) && (teamState[p]?.wins || 0) > 0);
                       const elim = d.picks.filter(p => p && teamState[p]?.eliminated);
                       const empty = d.picks.filter(p => !p);
+                      // Sort upcoming by game start time
+                      const getStartEpoch = (p) => {
+                        const lg = liveByTeam[p];
+                        if (!lg) return 99999999999;
+                        const game = liveGames.find(g => g.away.name === p || g.home.name === p);
+                        if (!game) return 99999999999;
+                        // Parse time like "1:30 PM ET"
+                        const m = (game.startTime || "").match(/(\d+):(\d+)\s*(AM|PM)/i);
+                        if (!m) return 99999999999;
+                        let h = parseInt(m[1]); const min = parseInt(m[2]);
+                        if (m[3].toUpperCase() === "PM" && h !== 12) h += 12;
+                        if (m[3].toUpperCase() === "AM" && h === 12) h = 0;
+                        return h * 60 + min;
+                      };
+                      upcoming.sort((a, b) => getStartEpoch(a) - getStartEpoch(b));
                       return [...playing, ...upcoming, ...advanced, ...elim, ...empty].slice(0, 8);
                     })();
                     return (
