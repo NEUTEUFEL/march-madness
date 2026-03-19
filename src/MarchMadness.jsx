@@ -226,7 +226,7 @@ export default function MarchMadness() {
   const [draftSort, setDraftSort] = useState("alive");
   const [loading, setLoading] = useState(true);
   const [showOdds, setShowOdds] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(()=>localStorage.getItem("mm_admin")==="1");
+  const [isAdmin, setIsAdmin] = useState(()=>localStorage.getItem("mm_adm_v4")==="1");
   const [selectedUser, setSelectedUser] = useState(()=>localStorage.getItem("mm_user")||"");
   const [liveGames, setLiveGames] = useState([]);
   const [timeline, setTimeline] = useState([]);
@@ -447,14 +447,19 @@ export default function MarchMadness() {
               {drafters.map(d=><option key={d.name} value={d.name}>{d.name}</option>)}
             </select>
             {isAdmin ? (
-              <button onClick={()=>{setIsAdmin(false);localStorage.removeItem("mm_admin");setEditMode(false);}}
+              <button onClick={()=>{setIsAdmin(false);localStorage.removeItem("mm_adm_v4");setEditMode(false);}}
                 className="px-3 py-1.5 text-xs font-medium border border-accent text-accent rounded hover:bg-accent/10 transition-colors">
                 Admin Mode
               </button>
             ) : (
-              <button onClick={()=>{
+              <button onClick={async()=>{
+                if(localStorage.getItem("mm_device")=== null){alert("Not authorized on this device.");return;}
                 const pin = prompt("Enter admin PIN:");
-                if(pin==="6847"){setIsAdmin(true);localStorage.setItem("mm_admin","1");}
+                if(!pin) return;
+                const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(pin)))).map(b=>b.toString(16).padStart(2,"0")).join("");
+                const dHash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(localStorage.getItem("mm_device"))))).map(b=>b.toString(16).padStart(2,"0")).join("");
+                if(hash==="fdc8510ebc4767b392564180123ecdac417540b3215390eaada187fcea62dff0"&&dHash==="a0f3285b29576396c10b8476299e60484fa29d03a498a63024dedb1af34f29e1"){setIsAdmin(true);localStorage.setItem("mm_adm_v4","1");}
+                else alert("Wrong PIN or unauthorized device.");
               }}
                 className="px-3 py-1.5 text-xs font-medium border border-border text-text-muted rounded hover:text-text-secondary hover:border-text-muted transition-colors">
                 Admin
@@ -663,7 +668,7 @@ export default function MarchMadness() {
                     const aliveCount = dScore?.alive || 0;
                     const elimCount = (dScore?.totalPicks || 0) - aliveCount;
                     const totalPicks = dScore?.totalPicks || 0;
-                    // Sort: live > upcoming (by game time) > advanced > eliminated
+                    // Sort: upcoming (by game time) > live/playing > advanced (decided) > eliminated
                     const sortedPicks = editMode ? d.picks : (() => {
                       const playing = d.picks.filter(p => p && !teamState[p]?.eliminated && liveByTeam[p] && (liveByTeam[p].state === "live" || liveByTeam[p].state === "in"));
                       const upcoming = d.picks.filter(p => p && !teamState[p]?.eliminated && !playing.includes(p) && (teamState[p]?.wins || 0) === 0);
@@ -676,7 +681,6 @@ export default function MarchMadness() {
                         if (!lg) return 99999999999;
                         const game = liveGames.find(g => g.away.name === p || g.home.name === p);
                         if (!game) return 99999999999;
-                        // Parse time like "1:30 PM ET"
                         const m = (game.startTime || "").match(/(\d+):(\d+)\s*(AM|PM)/i);
                         if (!m) return 99999999999;
                         let h = parseInt(m[1]); const min = parseInt(m[2]);
@@ -685,7 +689,9 @@ export default function MarchMadness() {
                         return h * 60 + min;
                       };
                       upcoming.sort((a, b) => getStartEpoch(a) - getStartEpoch(b));
-                      return [...playing, ...upcoming, ...advanced, ...elim, ...empty].slice(0, 8);
+                      // Sort advanced by wins descending (most advanced = most decided)
+                      advanced.sort((a, b) => (teamState[b]?.wins || 0) - (teamState[a]?.wins || 0));
+                      return [...upcoming, ...playing, ...advanced, ...elim, ...empty].slice(0, 8);
                     })();
                     return (
                       <tr key={d.id} className={`transition-colors hover:bg-surface-hover ${isMe ? "bg-accent/10" : isEven ? "" : "bg-surface-raised/30"}`}>
