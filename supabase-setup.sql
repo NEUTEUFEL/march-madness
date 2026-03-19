@@ -73,7 +73,7 @@ insert into drafters (name, picks) values
   ('Laura Vidal', '{"Houston","VCU","Gonzaga","Northern Iowa","Clemson","Long Island","Kansas","Wright State"}'),
   ('Mike Thiessen', '{"Vanderbilt","Tennessee","Arkansas","BYU","UConn","Michigan State","Illinois","Miami"}'),
   ('Franco Matty', '{"Iowa State","St. John''s","Saint Mary''s","VCU","Akron","Troy","Florida","M-OH/SMU"}'),
-  ('Tanay Desai', '{"","","","","","","",""}'),
+  ('Tanay Desai', '{"Wisconsin","Gonzaga","Iowa State","Houston","St. John''s","Akron","South Florida","Troy"}'),
   ('Kalvin Kerwin', '{"Houston","St. John''s","BYU","Louisville","VCU","M-OH/SMU","Akron","Hofstra"}'),
   ('Rob Hunden', '{"","","","","","","",""}'),
   ('Steve Haemmerle', '{"","","","","","","",""}'),
@@ -94,7 +94,7 @@ insert into drafters (name, picks) values
 --   ('Laura Vidal', '{"Houston","VCU","Gonzaga","Northern Iowa","Clemson","Long Island","Kansas","Wright State"}'),
 --   ('Mike Thiessen', '{"Vanderbilt","Tennessee","Arkansas","BYU","UConn","Michigan State","Illinois","Miami"}'),
 --   ('Franco Matty', '{"Iowa State","St. John''s","Saint Mary''s","VCU","Akron","Troy","Florida","M-OH/SMU"}'),
---   ('Tanay Desai', '{"","","","","","","",""}'),
+--   ('Tanay Desai', '{"Wisconsin","Gonzaga","Iowa State","Houston","St. John''s","Akron","South Florida","Troy"}'),
 --   ('Kalvin Kerwin', '{"Houston","St. John''s","BYU","Louisville","VCU","M-OH/SMU","Akron","Hofstra"}'),
 --   ('Sarah Jenkins', '{"St. John''s","UConn","Nebraska","Illinois","Arizona","Miami","M-OH/SMU","Michigan"}'),
 --   ('Rob Hunden', '{"","","","","","","",""}');
