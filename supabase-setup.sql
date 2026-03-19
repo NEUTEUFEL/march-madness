@@ -62,7 +62,7 @@ insert into team_states (team_name, wins, eliminated) values
 
 -- Seed drafters (updated roster as of 2026-03-18)
 insert into drafters (name, picks) values
-  ('Lucas', '{"Louisville","Wisconsin","Nebraska","Santa Clara","Arkansas","VCU","BYU","Kansas"}'),
+  ('Lucas', '{"South Florida","M-OH/SMU","Texas A&M","Santa Clara","Akron","VCU","BYU","TCU"}'),
   ('Bethanie', '{"Duke","Arizona","UConn","Illinois","St. John''s","Vanderbilt","Louisville","Penn"}'),
   ('Derek', '{"St. John''s","VCU","Akron","Iowa State","Vanderbilt","South Florida","Arizona","UCLA"}'),
   ('Gwen', '{"Duke","Houston","Akron","Vanderbilt","VCU","McNeese","Texas A&M","Ohio State"}'),
@@ -86,7 +86,7 @@ insert into drafters (name, picks) values
 -- =============================================
 -- ALTER TABLE team_states ADD COLUMN win_prob real NOT NULL DEFAULT 0.5 CHECK (win_prob >= 0 AND win_prob <= 1);
 -- DELETE FROM drafters WHERE name = 'Sarah';
--- UPDATE drafters SET picks = '{"Louisville","Wisconsin","Nebraska","Santa Clara","Arkansas","VCU","BYU","Kansas"}' WHERE name = 'Lucas';
+-- UPDATE drafters SET picks = '{"South Florida","M-OH/SMU","Texas A&M","Santa Clara","Akron","VCU","BYU","TCU"}' WHERE name = 'Lucas';
 -- UPDATE drafters SET picks = '{"St. John''s","VCU","Akron","Iowa State","Vanderbilt","South Florida","Arizona","UCLA"}' WHERE name = 'Derek';
 -- INSERT INTO drafters (name, picks) VALUES
 --   ('Billy Jenkins', '{"Michigan","Arizona","Houston","UConn","St. John''s","BYU","South Florida","Akron"}'),
