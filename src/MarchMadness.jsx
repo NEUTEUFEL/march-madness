@@ -376,13 +376,12 @@ export default function MarchMadness() {
 
   const teamMap = useMemo(()=>{ const m={}; TEAMS.forEach(t=>{m[t.name]=t;}); return m; },[]);
 
-  // Live badge component — shows anywhere a team is mentioned
-  const LiveBadge = useCallback(({team, compact})=>{
+  // Live badge helper — shows anywhere a team is mentioned
+  function liveBadge(team, compact) {
     const lg = liveGames[team];
     if(!lg) return null;
     const myScore = lg.away.name===team ? lg.away.score : lg.home.score;
     const oppScore = lg.away.name===team ? lg.home.score : lg.away.score;
-    const oppName = lg.away.name===team ? lg.home.name : lg.away.name;
     if(lg.state==="live" || lg.state==="in") return (
       <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 bg-red-500/10 border border-red-500/30 rounded font-mono font-semibold text-red-600 animate-pulse ${compact?"text-[9px]":"text-[10px]"}`}>
         LIVE {myScore}-{oppScore}
@@ -400,7 +399,7 @@ export default function MarchMadness() {
       </span>
     );
     return null;
-  },[liveGames]);
+  }
 
   const logTimeline = useCallback(async (eventType, teamName, detail, currentScores) => {
     const scoreSnap = {};
@@ -712,7 +711,7 @@ export default function MarchMadness() {
                                         {winDots(s.wins)}
                                       </>
                                     )}
-                                    {!s?.eliminated && <LiveBadge team={p} compact/>}
+                                    {!s?.eliminated && liveBadge(p, true)}
                                   </span>
                                 );
                               })}
@@ -834,7 +833,7 @@ export default function MarchMadness() {
                                   {t && s && s.wins>0 && !elim && (
                                     <div className="font-mono font-semibold text-accent text-xs mt-0.5">+{t.seed*s.wins}{winDots(s.wins)}</div>
                                   )}
-                                  {t && !elim && <div className="mt-0.5"><LiveBadge team={p} compact/></div>}
+                                  {t && !elim && <div className="mt-0.5">{liveBadge(p, true)}</div>}
                                 </div>
                               )}
                             </td>
@@ -907,7 +906,7 @@ export default function MarchMadness() {
                             </span>
                             {s.wins > 0 && !s.eliminated && winDots(s.wins)}
                             {draftedBy.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-accent/60" title={`Drafted by: ${draftedBy.join(", ")}`} />}
-                            <LiveBadge team={t.name}/>
+                            {liveBadge(t.name)}
                           </div>
                           {isAdmin && <button onClick={()=>toggleElim(t.name)}
                             className={`text-xs px-1.5 py-0.5 rounded font-mono transition-colors ${
