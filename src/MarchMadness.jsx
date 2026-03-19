@@ -277,18 +277,76 @@ export default function MarchMadness() {
     if(data?.[0]) setTimeline(prev=>[...prev, data[0]]);
   },[]);
 
+  // Find opponent of a team in a specific round (1-indexed: 1=R64, 2=R32, etc.)
+  const findOpponent = useCallback((name, round) => {
+    const team = teamMap[name];
+    if(!team || team.region==="N/A") return null;
+    const region = team.region;
+    const path = SEED_PATH[team.seed];
+    if(path===undefined) return null;
+
+    // Rounds 1-4 are within the region
+    if(round>=1 && round<=4) {
+      // In round R, teams whose paths differ only in the last R bits meet
+      // Round 1: differ in bit 0 (XOR mask 1)
+      // Round 2: differ in bits 0-1 (group of 4, XOR mask within group)
+      const groupSize = Math.pow(2, round);
+      const groupStart = Math.floor(path / groupSize) * groupSize;
+      // The opponent survived previous rounds — find the team in the opposing half of this group
+      const halfSize = groupSize / 2;
+      const myHalf = Math.floor((path - groupStart) / halfSize);
+      const oppHalfStart = groupStart + (myHalf === 0 ? halfSize : 0);
+      // Find the surviving team in the opponent's half
+      const regionTeams = TEAMS.filter(t=>t.region===region && t.region!=="N/A");
+      const candidates = regionTeams.filter(t=>{
+        const p = SEED_PATH[t.seed];
+        return p >= oppHalfStart && p < oppHalfStart + halfSize;
+      });
+      // Return the one that's alive with enough wins to be in this round
+      const alive = candidates.filter(t=>{
+        const s = teamState[t.name];
+        return s && !s.eliminated && s.wins >= round - 1;
+      });
+      return alive.length === 1 ? alive[0].name : null;
+    }
+    return null; // Final Four / Final are cross-region, skip auto for now
+  },[teamMap, teamState]);
+
   const setWins = useCallback(async (name, w) => {
+    const prevWins = teamState[name]?.wins || 0;
     setTeamState(p=>({...p,[name]:{...p[name],wins:w}}));
     await supabase.from("team_states").update({ wins: w }).eq("team_name", name);
-  },[]);
+
+    // If wins increased, find and eliminate the opponent for each new win round
+    if(w > prevWins) {
+      for(let round = prevWins + 1; round <= w; round++) {
+        const opp = findOpponent(name, round);
+        if(opp && !teamState[opp]?.eliminated) {
+          setTeamState(p=>({...p,[opp]:{...p[opp],eliminated:true}}));
+          await supabase.from("team_states").update({ eliminated: true }).eq("team_name", opp);
+          logTimeline("elimination", opp, {seed: teamMap[opp]?.seed, region: teamMap[opp]?.region, lost_to: name});
+        }
+      }
+    }
+  },[teamState, findOpponent, logTimeline, teamMap]);
 
   const toggleElim = useCallback(async (name) => {
     const newVal = !teamState[name]?.eliminated;
     setTeamState(p=>({...p,[name]:{...p[name],eliminated:newVal}}));
     await supabase.from("team_states").update({ eliminated: newVal }).eq("team_name", name);
-    // Log elimination to timeline
-    if(newVal) logTimeline("elimination", name, {seed: teamMap[name]?.seed, region: teamMap[name]?.region});
-  },[teamState]);
+
+    if(newVal) {
+      // Eliminated: give the opponent a win
+      const round = (teamState[name]?.wins || 0) + 1;
+      const opp = findOpponent(name, round);
+      if(opp && !teamState[opp]?.eliminated) {
+        const oppWins = (teamState[opp]?.wins || 0) + 1;
+        setTeamState(p=>({...p,[opp]:{...p[opp],wins:oppWins}}));
+        await supabase.from("team_states").update({ wins: oppWins }).eq("team_name", opp);
+      }
+      logTimeline("elimination", name, {seed: teamMap[name]?.seed, region: teamMap[name]?.region, lost_to: opp});
+    }
+  },[teamState, findOpponent, logTimeline, teamMap]);
 
   const setWinProb = useCallback(async (name, prob) => {
     const v = Math.max(0.01, Math.min(0.99, prob));
