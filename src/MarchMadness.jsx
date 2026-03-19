@@ -25,6 +25,7 @@ const CLASSIC_ONLY = [
   {name:"Benjamin Pittenger",paid:true},
   {name:"Patty Tostado",paid:true},
   {name:"Shawn Gustafson",paid:true},
+  {name:"Sheila Butler",paid:true},
 ];
 
 const REGION_BRACKET = [
