@@ -961,6 +961,105 @@ export default function MarchMadness() {
               })()}
             </section>
 
+            {/* Region Concentration */}
+            <section className="mb-8">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-accent mb-1">Region Concentration</h3>
+              <p className="text-xs text-text-muted mb-3">How each drafter's picks are distributed across regions</p>
+              <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
+                {scores.filter(d=>d.totalPicks>0).map(d=>{
+                  const regionCounts = {East:0,South:0,West:0,Midwest:0};
+                  d.picks.forEach(p=>{const t=teamMap[p]; if(t&&t.region!=="N/A") regionCounts[t.region]++;});
+                  const total = d.totalPicks || 1;
+                  const maxRegion = Object.entries(regionCounts).sort((a,b)=>b[1]-a[1])[0];
+                  return (
+                    <div key={d.name} className="px-5 py-3 hover:bg-surface-hover transition-colors">
+                      <div className="flex items-center gap-3 mb-2">
+                        <span className="w-28 text-sm font-medium truncate">{d.name}</span>
+                        <div className="flex-1 flex h-6 rounded-sm overflow-hidden bg-surface-raised">
+                          {["East","South","West","Midwest"].filter(r=>regionCounts[r]>0).map(r=>(
+                            <div key={r} className="flex items-center justify-center text-[10px] font-mono font-semibold text-white"
+                              style={{width:`${regionCounts[r]/total*100}%`,backgroundColor:REGION_COLORS[r]}}>
+                              {regionCounts[r]}
+                            </div>
+                          ))}
+                        </div>
+                        {maxRegion[1]>=3 && <span className="text-[10px] font-mono text-accent font-semibold">{maxRegion[1]}/{total} {maxRegion[0]}</span>}
+                      </div>
+                    </div>
+                  );
+                })}
+                <div className="px-5 py-2 flex gap-4 text-xs text-text-muted font-mono">
+                  {["East","South","West","Midwest"].map(r=>(
+                    <span key={r} className="flex items-center gap-1"><span className="w-2 h-2 rounded-sm" style={{backgroundColor:REGION_COLORS[r]}}/>{r}</span>
+                  ))}
+                </div>
+              </div>
+            </section>
+
+            {/* Pick Overlap */}
+            <section className="mb-8">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-accent mb-1">Pick Overlap</h3>
+              <p className="text-xs text-text-muted mb-3">How many teams each pair of drafters share</p>
+              {(()=>{
+                const active = drafters.filter(d=>d.picks.filter(p=>p).length>0);
+                const pairs = [];
+                for(let i=0;i<active.length;i++){
+                  for(let j=i+1;j<active.length;j++){
+                    const shared = active[i].picks.filter(p=>p&&active[j].picks.includes(p));
+                    if(shared.length>0) pairs.push({a:active[i].name,b:active[j].name,shared,count:shared.length});
+                  }
+                }
+                pairs.sort((a,b)=>b.count-a.count);
+                return (
+                  <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
+                    {pairs.slice(0,20).map((p,i)=>(
+                      <div key={i} className="px-5 py-2.5 flex items-center gap-3 hover:bg-surface-hover transition-colors">
+                        <span className="font-mono text-accent font-bold w-6 text-right">{p.count}</span>
+                        <span className="text-sm"><span className="font-semibold">{p.a}</span> <span className="text-text-muted">&</span> <span className="font-semibold">{p.b}</span></span>
+                        <div className="flex-1 flex gap-1 flex-wrap justify-end">
+                          {p.shared.map((t,ti)=>{
+                            const tm=teamMap[t];
+                            return <span key={ti} className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm bg-surface-raised text-text-muted" style={{borderLeft:`2px solid ${REGION_COLORS[tm?.region]||"#999"}`}}>{t}</span>;
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </section>
+
+            {/* Unique Picks */}
+            <section className="mb-8">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-accent mb-1">Exclusive Picks</h3>
+              <p className="text-xs text-text-muted mb-3">Teams only one drafter chose — all points go to them</p>
+              {(()=>{
+                const counts = {};
+                drafters.forEach(d=>d.picks.forEach(p=>{if(p){if(!counts[p])counts[p]={count:0,by:[]};counts[p].count++;counts[p].by.push(d.name);}}));
+                const exclusive = Object.entries(counts).filter(([,d])=>d.count===1).map(([team,d])=>({team,owner:d.by[0]}));
+                const byOwner = {};
+                exclusive.forEach(e=>{if(!byOwner[e.owner])byOwner[e.owner]=[];byOwner[e.owner].push(e.team);});
+                const sorted = Object.entries(byOwner).sort((a,b)=>b[1].length-a[1].length);
+                return (
+                  <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
+                    {sorted.map(([name,teams])=>(
+                      <div key={name} className="px-5 py-2.5 flex items-center gap-3 hover:bg-surface-hover transition-colors">
+                        <span className="font-semibold text-sm w-28 truncate">{name}</span>
+                        <span className="font-mono text-accent font-bold w-4">{teams.length}</span>
+                        <div className="flex-1 flex gap-1 flex-wrap">
+                          {teams.map((t,ti)=>{
+                            const tm=teamMap[t];
+                            const pts = (tm?.seed||0) * 6;
+                            return <span key={ti} className="text-[10px] font-mono px-1.5 py-0.5 rounded-sm bg-surface-raised text-text-secondary" style={{borderLeft:`2px solid ${REGION_COLORS[tm?.region]||"#999"}`}}>{t} <span className="text-text-muted">({tm?.seed})</span></span>;
+                          })}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </section>
+
             {/* Cinderella Upside */}
             <section>
               <h3 className="text-xs font-semibold uppercase tracking-wider text-accent mb-1">Cinderella Upside</h3>
