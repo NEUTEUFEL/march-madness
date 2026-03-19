@@ -1,23 +1,23 @@
 @import "tailwindcss";
 
 @theme {
-  --color-surface: #0f1117;
-  --color-surface-raised: #161820;
-  --color-surface-hover: #1c1e28;
-  --color-border: #25272f;
-  --color-border-subtle: #1e2028;
-  --color-text-primary: #e8e9ed;
-  --color-text-secondary: #8b8d98;
-  --color-text-muted: #5c5e6a;
-  --color-accent: #d4a017;
-  --color-accent-muted: rgba(212, 160, 23, 0.15);
-  --color-region-east: #4a90d9;
-  --color-region-south: #d94a4a;
-  --color-region-west: #3ab06f;
-  --color-region-midwest: #d98f3a;
-  --color-ev: #5b9bd5;
-  --color-positive: #3ab06f;
-  --color-negative: #d94a4a;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f8f9fa;
+  --color-surface-hover: #f0f1f3;
+  --color-border: #e2e4e8;
+  --color-border-subtle: #eef0f2;
+  --color-text-primary: #1a1a1a;
+  --color-text-secondary: #6b7280;
+  --color-text-muted: #9ca3af;
+  --color-accent: #c45a20;
+  --color-accent-muted: rgba(196, 90, 32, 0.1);
+  --color-region-east: #2563eb;
+  --color-region-south: #dc2626;
+  --color-region-west: #16a34a;
+  --color-region-midwest: #d97706;
+  --color-ev: #2563eb;
+  --color-positive: #16a34a;
+  --color-negative: #dc2626;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 }
