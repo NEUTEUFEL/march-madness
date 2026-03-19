@@ -215,6 +215,7 @@ export default function MarchMadness() {
   const [showOdds, setShowOdds] = useState(false);
   const [isAdmin, setIsAdmin] = useState(()=>localStorage.getItem("mm_admin")==="1");
   const [selectedUser, setSelectedUser] = useState(()=>localStorage.getItem("mm_user")||"");
+  const [liveGames, setLiveGames] = useState([]);
   const locked = Date.now() >= PICKS_LOCK.getTime();
 
   useEffect(() => {
@@ -263,6 +264,38 @@ export default function MarchMadness() {
   }, []);
 
   const teamMap = useMemo(()=>{ const m={}; TEAMS.forEach(t=>{m[t.name]=t;}); return m; },[]);
+
+  // Live scores — fetch from our API proxy every 30s, which writes to Supabase
+  useEffect(() => {
+    async function fetchScores() {
+      try {
+        // First try API proxy (writes to Supabase too)
+        const res = await fetch("/api/scores");
+        if (res.ok) {
+          const data = await res.json();
+          if (data.games) setLiveGames(data.games);
+          return;
+        }
+      } catch (e) { /* fallback to Supabase */ }
+      try {
+        const { data } = await supabase.from("live_scores").select("games").eq("id", 1).single();
+        if (data?.games) setLiveGames(typeof data.games === "string" ? JSON.parse(data.games) : data.games);
+      } catch (e) { /* no live scores available */ }
+    }
+    fetchScores();
+    const interval = setInterval(fetchScores, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Build a lookup: team name -> live game info
+  const liveByTeam = useMemo(() => {
+    const map = {};
+    liveGames.forEach(g => {
+      if (g.away?.name) map[g.away.name] = g;
+      if (g.home?.name) map[g.home.name] = g;
+    });
+    return map;
+  }, [liveGames]);
 
   const setWins = useCallback(async (name, w) => {
     setTeamState(p=>({...p,[name]:{...p[name],wins:w}}));
@@ -353,6 +386,7 @@ export default function MarchMadness() {
     {id:"leaderboard",label:"Leaderboard"},
     {id:"draft",label:"Draft Board"},
     {id:"teams",label:"Teams"},
+    {id:"live",label:"Live"},
     {id:"projections",label:"Projections"},
     {id:"analytics",label:"Analytics"},
   ];
@@ -674,6 +708,28 @@ export default function MarchMadness() {
                             </span>
                             {s.wins > 0 && !s.eliminated && winDots(s.wins)}
                             {draftedBy.length > 0 && <span className="w-1.5 h-1.5 rounded-full bg-accent/60" title={`Drafted by: ${draftedBy.join(", ")}`} />}
+                            {(() => {
+                              const lg = liveByTeam[t.name];
+                              if (!lg) return null;
+                              const my = lg.away.name === t.name ? lg.away.score : lg.home.score;
+                              const opp = lg.away.name === t.name ? lg.home.score : lg.away.score;
+                              if (lg.state === "live" || lg.state === "in") return (
+                                <span className="inline-flex items-center gap-1 ml-1 px-1.5 py-0.5 bg-red-50 border border-red-200 rounded text-[10px] font-mono font-semibold text-red-600 animate-pulse">
+                                  LIVE {my}-{opp} {lg.period} {lg.clock}
+                                </span>
+                              );
+                              if (lg.state === "pre") return (
+                                <span className="inline-flex items-center gap-1 ml-1 px-1.5 py-0.5 bg-surface-raised border border-border rounded text-[10px] font-mono text-text-muted">
+                                  {lg.startTime} {lg.network}
+                                </span>
+                              );
+                              if (lg.state === "final") return (
+                                <span className="inline-flex items-center gap-1 ml-1 px-1.5 py-0.5 bg-surface-raised border border-border rounded text-[10px] font-mono text-text-muted">
+                                  F {my}-{opp}
+                                </span>
+                              );
+                              return null;
+                            })()}
                           </div>
                           {isAdmin && <button onClick={()=>toggleElim(t.name)}
                             className={`text-xs px-1.5 py-0.5 rounded font-mono transition-colors ${
@@ -729,6 +785,90 @@ export default function MarchMadness() {
                 </div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* ===== LIVE ===== */}
+        {tab==="live" && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-text-secondary">Today's Games</h2>
+              <span className="text-xs text-text-muted font-mono">Updates every 30s</span>
+            </div>
+            {liveGames.length === 0 ? (
+              <div className="border border-border rounded-lg px-6 py-12 text-center">
+                <p className="text-text-muted text-sm">No games scheduled for today.</p>
+                <p className="text-text-muted text-xs mt-1 font-mono">Games will appear here on game days.</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {[...liveGames]
+                  .sort((a,b) => {
+                    const order = {"live":0,"in":0,"pre":1,"final":2};
+                    return (order[a.state]??1) - (order[b.state]??1);
+                  })
+                  .map((g, i) => {
+                  const awayTeam = teamMap[g.away.name];
+                  const homeTeam = teamMap[g.home.name];
+                  const awayDrafters = drafters.filter(d => d.picks.includes(g.away.name)).map(d => d.name);
+                  const homeDrafters = drafters.filter(d => d.picks.includes(g.home.name)).map(d => d.name);
+                  const isLive = g.state === "live" || g.state === "in";
+                  const isFinal = g.state === "final";
+                  const awayWinning = Number(g.away.score) > Number(g.home.score);
+                  const homeWinning = Number(g.home.score) > Number(g.away.score);
+                  return (
+                    <div key={g.id || i} className={`border rounded-lg overflow-hidden ${isLive ? "border-red-500/40 bg-red-50" : "border-border"}`}>
+                      <div className={`px-4 py-1.5 flex items-center justify-between text-xs font-mono ${
+                        isLive ? "bg-red-100 text-red-600" : "bg-surface-raised text-text-muted"
+                      }`}>
+                        {isLive ? (
+                          <span className="flex items-center gap-1.5 font-semibold"><span className="w-2 h-2 rounded-full bg-red-500 animate-pulse"/>LIVE — {g.period} {g.clock}</span>
+                        ) : isFinal ? (
+                          <span>FINAL</span>
+                        ) : (
+                          <span>{g.startTime}</span>
+                        )}
+                        {g.network && <span>{g.network}</span>}
+                      </div>
+                      <div className="px-4 py-3">
+                        <div className={`flex items-center gap-3 py-2 ${isFinal && !awayWinning ? "opacity-50" : ""}`}>
+                          {awayTeam && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{backgroundColor:REGION_COLORS[awayTeam.region]}}/>}
+                          <span className="font-mono text-xs text-text-muted w-5 text-right">{g.away.seed}</span>
+                          <span className="font-semibold text-sm flex-1">{g.away.name}</span>
+                          <span className={`font-mono text-xl font-bold w-10 text-right ${isLive && awayWinning ? "text-text-primary" : "text-text-secondary"}`}>{g.away.score || "-"}</span>
+                        </div>
+                        <div className={`flex items-center gap-3 py-2 border-t border-border-subtle ${isFinal && !homeWinning ? "opacity-50" : ""}`}>
+                          {homeTeam && <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{backgroundColor:REGION_COLORS[homeTeam.region]}}/>}
+                          <span className="font-mono text-xs text-text-muted w-5 text-right">{g.home.seed}</span>
+                          <span className="font-semibold text-sm flex-1">{g.home.name}</span>
+                          <span className={`font-mono text-xl font-bold w-10 text-right ${isLive && homeWinning ? "text-text-primary" : "text-text-secondary"}`}>{g.home.score || "-"}</span>
+                        </div>
+                        {(awayDrafters.length > 0 || homeDrafters.length > 0) && (
+                          <div className="mt-2 pt-2 border-t border-border-subtle flex flex-wrap gap-x-6 gap-y-1">
+                            {awayDrafters.length > 0 && (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] font-mono text-text-muted">{g.away.name}:</span>
+                                {awayDrafters.map(n => (
+                                  <span key={n} className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${selectedUser === n ? "bg-accent/20 text-accent font-semibold" : "bg-surface-raised text-text-muted"}`}>{n}</span>
+                                ))}
+                              </div>
+                            )}
+                            {homeDrafters.length > 0 && (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-[10px] font-mono text-text-muted">{g.home.name}:</span>
+                                {homeDrafters.map(n => (
+                                  <span key={n} className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${selectedUser === n ? "bg-accent/20 text-accent font-semibold" : "bg-surface-raised text-text-muted"}`}>{n}</span>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
 
