@@ -272,21 +272,35 @@ export default function MarchMadness() {
   useEffect(()=>{
     // Map NCAA API team names to our team names
     const NAME_MAP = {
-      "St. John's (NY)":"St. John's","Saint John's":"St. John's","St. John's":"St. John's",
-      "Miami (OH)":"M-OH/SMU","Miami (Ohio)":"M-OH/SMU","Miami Ohio":"M-OH/SMU",
+      // Exact API short names from NCAA
+      "Ohio St.":"Ohio State","Michigan St.":"Michigan State","North Dakota St.":"North Dakota State",
+      "South Fla.":"South Florida","Kennesaw St.":"Kennesaw State","Saint Mary's (CA)":"Saint Mary's",
+      "St. John's (NY)":"St. John's","Saint John's":"St. John's",
+      "Miami (OH)":"M-OH/SMU","Miami (Ohio)":"M-OH/SMU","Miami Ohio":"M-OH/SMU","Miami OH":"M-OH/SMU",
       "Hawai`i":"Hawai'i","Hawaii":"Hawai'i",
       "LIU":"Long Island","Long Island University":"Long Island",
-      "Cal Baptist":"CA Baptist","California Baptist":"CA Baptist",
+      "Cal Baptist":"CA Baptist","California Baptist":"CA Baptist","Cal Baptist":"CA Baptist",
       "NDSU":"North Dakota State","N Dakota St":"North Dakota State",
       "PV A&M":"PV A&M/Lehigh","Prairie View":"PV A&M/Lehigh","Prairie View A&M":"PV A&M/Lehigh",
-      "UNI":"Northern Iowa","N Iowa":"Northern Iowa",
-      "UCSF":"UCF","Central Florida":"UCF",
+      "UNI":"Northern Iowa","N Iowa":"Northern Iowa","Northern Iowa":"Northern Iowa",
+      "Central Florida":"UCF",
       "Tenn. St.":"Tennessee State","Tennessee St.":"Tennessee State","Tennessee St":"Tennessee State",
-      "Kennesaw St.":"Kennesaw State","Kennesaw St":"Kennesaw State",
-      "SMU":"M-OH/SMU",
-      "NC State":"M-OH/SMU", // play-in opponent
+      "SMU":"M-OH/SMU","NC State":"M-OH/SMU",
+      // Handle period-abbreviated names
+      "Villanova":"Villanova","Utah St.":"Utah State","Utah St":"Utah State",
+      "Wright St.":"Wright State","Wright St":"Wright State",
+      "Saint Louis":"Saint Louis","Queens":"Queens",
     };
-    const resolve = (name) => NAME_MAP[name] || TEAMS.find(t=>t.name===name)?.name || TEAMS.find(t=>name.includes(t.name))?.name || name;
+    const resolve = (name) => {
+      if(NAME_MAP[name]) return NAME_MAP[name];
+      const exact = TEAMS.find(t=>t.name===name);
+      if(exact) return exact.name;
+      // Try partial match — strip periods and match
+      const clean = name.replace(/\./g,"").trim();
+      const partial = TEAMS.find(t=>t.name.replace(/\./g,"")=== clean || clean.includes(t.name.replace(/\./g,"")) || t.name.includes(clean));
+      if(partial) return partial.name;
+      return name;
+    };
 
     async function fetchLive(){
       try{
