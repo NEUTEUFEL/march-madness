@@ -584,7 +584,16 @@ export default function MarchMadness() {
                 <thead>
                   <tr className="border-b border-border bg-surface-raised">
                     <th className="text-left py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted sticky left-0 bg-surface-raised z-10 w-[140px]">Player</th>
-                    {[1,2,3,4,5,6,7,8].map(n=><th key={n} className="text-center py-2.5 px-2 w-[140px] text-xs font-medium uppercase tracking-wider text-text-muted">Pick {n}</th>)}
+                    {editMode
+                      ? [1,2,3,4,5,6,7,8].map(n=><th key={n} className="text-center py-2.5 px-2 w-[140px] text-xs font-medium uppercase tracking-wider text-text-muted">Pick {n}</th>)
+                      : <>
+                          <th colSpan="8" className="text-center py-2.5 px-2 text-xs font-medium uppercase tracking-wider text-text-muted">
+                            <span className="text-positive">Alive</span>
+                            <span className="text-text-muted mx-2">(by seed)</span>
+                            <span className="text-text-muted/50 ml-4">Eliminated</span>
+                          </th>
+                        </>
+                    }
                     <th className="text-center py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted">Pts</th>
                     <th className="text-center py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted">EV</th>
                     <th className="text-center py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted">Max</th>
@@ -596,10 +605,19 @@ export default function MarchMadness() {
                     const dScore = scores.find(s=>s.id===d.id);
                     const isEven = di % 2 === 0;
                     const isMe = selectedUser && d.name === selectedUser;
+                    // Sort picks: alive by seed (ascending), then eliminated by seed
+                    const sortedPicks = editMode ? d.picks : (()=>{
+                      const alive = d.picks.filter(p=>p && !teamState[p]?.eliminated)
+                        .sort((a,b)=>(teamMap[a]?.seed||99)-(teamMap[b]?.seed||99));
+                      const elim = d.picks.filter(p=>p && teamState[p]?.eliminated)
+                        .sort((a,b)=>(teamMap[a]?.seed||99)-(teamMap[b]?.seed||99));
+                      const empty = d.picks.filter(p=>!p);
+                      return [...alive, ...elim, ...empty].slice(0,8);
+                    })();
                     return (
                       <tr key={d.id} className={`transition-colors hover:bg-surface-hover ${isMe ? "bg-accent/10" : isEven ? "" : "bg-surface-raised/30"}`}>
                         <td className={`py-2.5 px-3 font-semibold sticky left-0 z-10 w-[140px] truncate ${isMe ? "bg-accent/10 text-accent" : "bg-surface text-text-primary"}`}>{d.name}</td>
-                        {d.picks.map((p,pi)=>{
+                        {sortedPicks.map((p,pi)=>{
                           const t=teamMap[p]; const s=teamState[p];
                           const elim=s?.eliminated;
                           const regionColor = t ? REGION_COLORS[t.region] : null;
@@ -608,22 +626,21 @@ export default function MarchMadness() {
                               {editMode ? (
                                 <TeamSelect value={p} onChange={v=>updatePick(di,pi,v)} teams={TEAMS.filter(t=>t.region!=="N/A")} />
                               ) : (
-                                <div className={`px-2 py-1.5 text-xs ${
+                                <div className={`px-2 py-1.5 text-xs rounded ${
                                   !p ? "text-text-muted"
-                                  : elim ? "text-text-muted line-through"
+                                  : elim ? "text-text-muted/50 bg-surface-raised/50"
                                   : "text-text-primary"
                                 }`}>
                                   {t && (
-                                    <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{backgroundColor: regionColor}} />
+                                    <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{backgroundColor: elim ? "#d1d5db" : regionColor}} />
                                   )}
-                                  {t && <span className="font-mono text-text-muted mr-1">{t.seed}</span>}
-                                  <span className={elim ? "text-text-muted" : s?.wins>=2 ? "text-text-primary font-medium" : ""}>
+                                  {t && <span className={`font-mono mr-1 ${elim ? "text-text-muted/40" : "text-text-muted"}`}>{t.seed}</span>}
+                                  <span className={elim ? "line-through text-text-muted/40" : s?.wins>=2 ? "text-text-primary font-medium" : ""}>
                                     {p||"\u2014"}
                                   </span>
                                   {t && s && s.wins>0 && !elim && (
                                     <div className="font-mono font-semibold text-accent text-xs mt-0.5">+{t.seed*s.wins}{winDots(s.wins)}</div>
                                   )}
-                                  {elim && <div className="text-negative text-xs mt-0.5 font-mono">OUT</div>}
                                 </div>
                               )}
                             </td>
