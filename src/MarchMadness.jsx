@@ -649,14 +649,14 @@ export default function MarchMadness() {
                     const aliveCount = dScore?.alive || 0;
                     const elimCount = (dScore?.totalPicks || 0) - aliveCount;
                     const totalPicks = dScore?.totalPicks || 0;
-                    // Sort: playing > waiting > won > eliminated (forward-looking left side)
+                    // Sort: live > upcoming > won (advanced) > eliminated
                     const sortedPicks = editMode ? d.picks : (() => {
                       const playing = d.picks.filter(p => p && !teamState[p]?.eliminated && liveByTeam[p] && (liveByTeam[p].state === "live" || liveByTeam[p].state === "in"));
-                      const waiting = d.picks.filter(p => p && !teamState[p]?.eliminated && !playing.includes(p) && (teamState[p]?.wins || 0) === 0);
-                      const won = d.picks.filter(p => p && !teamState[p]?.eliminated && !playing.includes(p) && (teamState[p]?.wins || 0) > 0);
+                      const upcoming = d.picks.filter(p => p && !teamState[p]?.eliminated && !playing.includes(p) && (teamState[p]?.wins || 0) === 0);
+                      const advanced = d.picks.filter(p => p && !teamState[p]?.eliminated && !playing.includes(p) && (teamState[p]?.wins || 0) > 0);
                       const elim = d.picks.filter(p => p && teamState[p]?.eliminated);
                       const empty = d.picks.filter(p => !p);
-                      return [...playing, ...waiting, ...won, ...elim, ...empty].slice(0, 8);
+                      return [...playing, ...upcoming, ...advanced, ...elim, ...empty].slice(0, 8);
                     })();
                     return (
                       <tr key={d.id} className={`transition-colors hover:bg-surface-hover ${isMe ? "bg-accent/10" : isEven ? "" : "bg-surface-raised/30"}`}>
