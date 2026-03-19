@@ -1,5 +1,6 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { supabase } from "./supabase";
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend as RLegend } from "recharts";
 
 const TEAMS = [
   {name:"Duke",seed:1,region:"East"},{name:"Siena",seed:16,region:"East"},{name:"Ohio State",seed:8,region:"East"},{name:"TCU",seed:9,region:"East"},{name:"St. John's",seed:5,region:"East"},{name:"Northern Iowa",seed:12,region:"East"},{name:"Kansas",seed:4,region:"East"},{name:"CA Baptist",seed:13,region:"East"},{name:"Louisville",seed:6,region:"East"},{name:"South Florida",seed:11,region:"East"},{name:"Michigan State",seed:3,region:"East"},{name:"North Dakota State",seed:14,region:"East"},{name:"UCLA",seed:7,region:"East"},{name:"UCF",seed:10,region:"East"},{name:"UConn",seed:2,region:"East"},{name:"Furman",seed:15,region:"East"},
@@ -216,6 +217,7 @@ export default function MarchMadness() {
   const [isAdmin, setIsAdmin] = useState(()=>localStorage.getItem("mm_admin")==="1");
   const [selectedUser, setSelectedUser] = useState(()=>localStorage.getItem("mm_user")||"");
   const [liveGames, setLiveGames] = useState([]);
+  const [timeline, setTimeline] = useState([]);
   const locked = Date.now() >= PICKS_LOCK.getTime();
 
   useEffect(() => {
@@ -235,6 +237,10 @@ export default function MarchMadness() {
         setTeamState(s);
       }
       if (drafterRes.data) setDrafters(drafterRes.data.map(r => ({ id: r.id, name: r.name, picks: r.picks || [] })));
+      try {
+        const tlRes = await supabase.from("timeline").select("*").order("ts");
+        if (tlRes.data) setTimeline(tlRes.data);
+      } catch (e) { /* timeline table may not exist */ }
       setLoading(false);
     }
     loadData();
@@ -297,6 +303,14 @@ export default function MarchMadness() {
     return map;
   }, [liveGames]);
 
+  const logTimeline = useCallback(async (eventType, teamName, detail) => {
+    try {
+      const row = { event_type: eventType, team_name: teamName, detail };
+      const { data } = await supabase.from("timeline").insert(row).select();
+      if (data && data[0]) setTimeline(prev => [...prev, data[0]]);
+    } catch (e) { /* timeline table may not exist */ }
+  }, []);
+
   const setWins = useCallback(async (name, w) => {
     setTeamState(p=>({...p,[name]:{...p[name],wins:w}}));
     await supabase.from("team_states").update({ wins: w }).eq("team_name", name);
@@ -306,7 +320,8 @@ export default function MarchMadness() {
     const newVal = !teamState[name]?.eliminated;
     setTeamState(p=>({...p,[name]:{...p[name],eliminated:newVal}}));
     await supabase.from("team_states").update({ eliminated: newVal }).eq("team_name", name);
-  },[teamState]);
+    if (newVal) logTimeline("elimination", name, { seed: teamMap[name]?.seed, region: teamMap[name]?.region });
+  },[teamState, teamMap, logTimeline]);
 
   const setWinProb = useCallback(async (name, prob) => {
     const v = Math.max(0.01, Math.min(0.99, prob));
@@ -388,6 +403,7 @@ export default function MarchMadness() {
     {id:"teams",label:"Teams"},
     {id:"live",label:"Live"},
     {id:"projections",label:"Projections"},
+    {id:"timeline",label:"Timeline"},
     {id:"analytics",label:"Analytics"},
   ];
 
@@ -591,27 +607,59 @@ export default function MarchMadness() {
                 <button onClick={addDrafter} className="bg-accent hover:bg-accent/90 text-surface px-4 py-2 rounded text-sm font-semibold">Add</button>
               </div>
             )}
+            {/* Region Legend */}
+            <div className="flex gap-4 mb-3 text-xs text-text-muted font-mono">
+              {["East","South","West","Midwest"].map(r=>(
+                <span key={r} className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor:REGION_COLORS[r]}}/>{r}</span>
+              ))}
+              <span className="ml-auto text-text-muted">Sorted: alive by seed, eliminated right</span>
+            </div>
             <div className="overflow-x-auto border border-border rounded-lg">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border bg-surface-raised">
-                    <th className="text-left py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted sticky left-0 bg-surface-raised z-10">Player</th>
-                    {[1,2,3,4,5,6,7,8].map(n=><th key={n} className="text-center py-2.5 px-2 min-w-[140px] text-xs font-medium uppercase tracking-wider text-text-muted">Pick {n}</th>)}
+                    <th className="text-left py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted sticky left-0 bg-surface-raised z-10 w-[150px]">Player</th>
+                    <th className="text-left py-2.5 px-1 text-xs font-medium uppercase tracking-wider text-text-muted w-[100px]">Status</th>
+                    {[1,2,3,4,5,6,7,8].map(n=><th key={n} className="text-center py-2.5 px-2 min-w-[130px] text-xs font-medium uppercase tracking-wider text-text-muted">{editMode ? `Pick ${n}` : n}</th>)}
                     <th className="text-center py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted">Pts</th>
-                    <th className="text-center py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted">EV</th>
                     <th className="text-center py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted">Max</th>
                     {editMode && <th className="w-8"></th>}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border-subtle">
-                  {drafters.map((d,di)=>{
+                  {(editMode ? drafters : [...drafters].sort((a,b) => {
+                    const sa = scores.find(s=>s.id===a.id);
+                    const sb = scores.find(s=>s.id===b.id);
+                    return (sb?.alive||0) - (sa?.alive||0) || (sb?.pts||0) - (sa?.pts||0);
+                  })).map((d,di)=>{
                     const dScore = scores.find(s=>s.id===d.id);
                     const isEven = di % 2 === 0;
                     const isMe = selectedUser && d.name === selectedUser;
+                    const aliveCount = dScore?.alive || 0;
+                    const elimCount = (dScore?.totalPicks || 0) - aliveCount;
+                    const totalPicks = dScore?.totalPicks || 0;
+                    // Sort picks: alive by seed ascending, then eliminated
+                    const sortedPicks = editMode ? d.picks : (() => {
+                      const alive = d.picks.filter(p => p && !teamState[p]?.eliminated).sort((a,b) => (teamMap[a]?.seed||99) - (teamMap[b]?.seed||99));
+                      const elim = d.picks.filter(p => p && teamState[p]?.eliminated).sort((a,b) => (teamMap[a]?.seed||99) - (teamMap[b]?.seed||99));
+                      const empty = d.picks.filter(p => !p);
+                      return [...alive, ...elim, ...empty].slice(0, 8);
+                    })();
                     return (
                       <tr key={d.id} className={`transition-colors hover:bg-surface-hover ${isMe ? "bg-accent/10" : isEven ? "" : "bg-surface-raised/30"}`}>
-                        <td className={`py-2.5 px-3 font-semibold sticky left-0 z-10 ${isMe ? "bg-accent/10 text-accent" : "bg-surface text-text-primary"}`}>{d.name}</td>
-                        {d.picks.map((p,pi)=>{
+                        <td className={`py-2.5 px-3 font-semibold sticky left-0 z-10 w-[150px] truncate ${isMe ? "bg-accent/10 text-accent" : "bg-surface text-text-primary"}`}>{d.name}</td>
+                        <td className="py-2.5 px-1 w-[100px]">
+                          {totalPicks > 0 && (
+                            <div className="flex items-center gap-1">
+                              <div className="flex h-3 flex-1 rounded-full overflow-hidden bg-border">
+                                {aliveCount > 0 && <div className="bg-positive" style={{width:`${aliveCount/totalPicks*100}%`}} title={`${aliveCount} alive`}/>}
+                                {elimCount > 0 && <div className="bg-negative/40" style={{width:`${elimCount/totalPicks*100}%`}} title={`${elimCount} out`}/>}
+                              </div>
+                              <span className="text-[10px] font-mono text-text-muted">{aliveCount}/{totalPicks}</span>
+                            </div>
+                          )}
+                        </td>
+                        {sortedPicks.map((p,pi)=>{
                           const t=teamMap[p]; const s=teamState[p];
                           const elim=s?.eliminated;
                           const regionColor = t ? REGION_COLORS[t.region] : null;
@@ -687,7 +735,7 @@ export default function MarchMadness() {
                   <h3 className="text-sm font-semibold uppercase tracking-wider" style={{color:REGION_COLORS[region]}}>{region}</h3>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-px bg-border rounded-lg overflow-hidden">
-                  {TEAMS.filter(t=>t.region===region).sort((a,b)=>a.seed-b.seed).map(t=>{
+                  {TEAMS.filter(t=>t.region===region && !teamState[t.name]?.eliminated).sort((a,b)=>a.seed-b.seed).map(t=>{
                     const s=teamState[t.name];
                     const pts=t.seed*s.wins;
                     const draftedBy = drafters.filter(d=>d.picks.includes(t.name)).map(d=>d.name);
@@ -785,6 +833,26 @@ export default function MarchMadness() {
                 </div>
               </div>
             ))}
+            {/* Eliminated Teams */}
+            {(() => {
+              const elimTeams = TEAMS.filter(t => t.region !== "N/A" && teamState[t.name]?.eliminated);
+              if (elimTeams.length === 0) return null;
+              return (
+                <div className="mt-8">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-text-muted mb-3">Eliminated ({elimTeams.length})</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {elimTeams.sort((a,b) => a.seed - b.seed).map(t => (
+                      <span key={t.name} className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-surface-raised border border-border rounded text-xs text-text-muted line-through opacity-60">
+                        <span className="w-1.5 h-1.5 rounded-full" style={{backgroundColor: REGION_COLORS[t.region]}}/>
+                        <span className="font-mono">{t.seed}</span>
+                        {t.name}
+                        {isAdmin && <button onClick={() => toggleElim(t.name)} className="ml-1 text-positive hover:bg-positive/10 rounded px-0.5">{"\u21A9"}</button>}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 
@@ -978,6 +1046,122 @@ export default function MarchMadness() {
             </div>
           </div>
         )}
+
+        {/* ===== TIMELINE ===== */}
+        {tab==="timeline" && (() => {
+          const COLORS = ["#c45a20","#2563eb","#16a34a","#dc2626","#d97706","#8b5cf6","#ec4899","#06b6d4","#84cc16","#f97316","#6366f1","#14b8a6","#f43f5e","#a855f7","#22d3ee","#eab308","#64748b","#10b981"];
+          const activeDrafters = scores.filter(d => d.totalPicks > 0);
+          const elimEvents = timeline.filter(e => e.event_type === "elimination");
+
+          // Current snapshot data for charts
+          const currentPts = { label: "Now" };
+          const currentAlive = { label: "Now" };
+          activeDrafters.forEach(d => {
+            currentPts[d.name] = d.pts;
+            currentAlive[d.name] = d.alive;
+          });
+
+          return (
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-wider text-text-secondary mb-6">Tournament Timeline</h2>
+
+              {/* Points by Drafter - current snapshot */}
+              <section className="mb-8">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-accent mb-3">Current Points</h3>
+                <div className="border border-border rounded-lg p-4 bg-surface-raised">
+                  <ResponsiveContainer width="100%" height={350}>
+                    <LineChart data={[{ label: "Start", ...Object.fromEntries(activeDrafters.map(d => [d.name, 0])) }, currentPts]}>
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} />
+                      <Tooltip contentStyle={{ backgroundColor: "#fff", border: "1px solid #e2e4e8", borderRadius: 8, fontSize: 12 }} />
+                      <RLegend wrapperStyle={{ fontSize: 11 }} />
+                      {activeDrafters.map((d, i) => (
+                        <Line key={d.name} type="monotone" dataKey={d.name} stroke={COLORS[i % COLORS.length]}
+                          strokeWidth={selectedUser === d.name ? 3 : 1.5} dot={{ r: 3 }}
+                          opacity={selectedUser && selectedUser !== d.name ? 0.3 : 1} />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </section>
+
+              {/* Teams Remaining */}
+              <section className="mb-8">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-accent mb-3">Teams Remaining</h3>
+                <div className="border border-border rounded-lg p-4 bg-surface-raised">
+                  <ResponsiveContainer width="100%" height={350}>
+                    <LineChart data={[{ label: "Start", ...Object.fromEntries(activeDrafters.map(d => [d.name, d.totalPicks])) }, currentAlive]}>
+                      <XAxis dataKey="label" tick={{ fontSize: 10 }} />
+                      <YAxis tick={{ fontSize: 10 }} domain={[0, 8]} />
+                      <Tooltip contentStyle={{ backgroundColor: "#fff", border: "1px solid #e2e4e8", borderRadius: 8, fontSize: 12 }} />
+                      <RLegend wrapperStyle={{ fontSize: 11 }} />
+                      {activeDrafters.map((d, i) => (
+                        <Line key={d.name} type="monotone" dataKey={d.name} stroke={COLORS[i % COLORS.length]}
+                          strokeWidth={selectedUser === d.name ? 3 : 1.5} dot={{ r: 3 }}
+                          opacity={selectedUser && selectedUser !== d.name ? 0.3 : 1} />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </section>
+
+              {/* Power Rankings */}
+              <section className="mb-8">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-accent mb-3">Power Rankings</h3>
+                <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
+                  {[...scores].filter(d => d.totalPicks > 0).sort((a, b) => b.pts - a.pts || b.bracketMax - a.bracketMax).map((d, i) => {
+                    const isMe = selectedUser && d.name === selectedUser;
+                    const maxBar = Math.max(...scores.filter(s => s.totalPicks > 0).map(s => s.pts + s.bracketMax), 1);
+                    return (
+                      <div key={d.name} className={`px-5 py-3 transition-colors ${isMe ? "bg-accent/10" : ""}`}>
+                        <div className="flex items-center gap-3 mb-1.5">
+                          <span className={`font-mono text-sm font-bold w-6 text-right ${i === 0 ? "text-accent" : "text-text-muted"}`}>{i + 1}</span>
+                          <span className="font-semibold text-sm flex-1">{d.name}</span>
+                          <span className="font-mono text-accent font-bold">{d.pts} pts</span>
+                          <span className="font-mono text-xs text-text-muted">{d.alive}/{d.totalPicks} alive</span>
+                          <span className="font-mono text-xs text-positive">max {d.bracketMax}</span>
+                        </div>
+                        <div className="flex h-2 rounded-full overflow-hidden bg-border ml-9">
+                          <div className="bg-accent rounded-l-full" style={{ width: `${d.pts / maxBar * 100}%` }} />
+                          <div className="bg-positive/30" style={{ width: `${d.bracketMax / maxBar * 100}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              {/* Elimination Log */}
+              <section className="mb-8">
+                <h3 className="text-xs font-semibold uppercase tracking-wider text-accent mb-3">Elimination Log</h3>
+                {elimEvents.length > 0 ? (
+                  <div className="border border-border rounded-lg overflow-hidden divide-y divide-border">
+                    {[...elimEvents].reverse().map((e, i) => {
+                      const t = teamMap[e.team_name];
+                      const regionColor = REGION_COLORS[t?.region] || "#999";
+                      const affected = drafters.filter(d => d.picks.includes(e.team_name)).map(d => d.name);
+                      return (
+                        <div key={i} className="px-5 py-3 flex items-center gap-3 hover:bg-surface-hover transition-colors">
+                          <span className="text-xs font-mono text-text-muted w-20 shrink-0">{new Date(e.ts).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}</span>
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: regionColor }} />
+                          <span className="font-semibold text-sm">{e.team_name}</span>
+                          <span className="text-xs font-mono text-text-muted">({t?.seed}) {t?.region}</span>
+                          <div className="flex-1 flex gap-1 flex-wrap justify-end">
+                            {affected.map(n => (
+                              <span key={n} className={`text-[10px] font-mono px-1.5 py-0.5 rounded-sm ${selectedUser === n ? "bg-accent/20 text-accent font-semibold" : "bg-surface-raised text-text-muted"}`}>{n}</span>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-text-muted font-mono">No eliminations recorded yet. As games finish, events will appear here.</p>
+                )}
+              </section>
+            </div>
+          );
+        })()}
 
         {/* ===== ANALYTICS ===== */}
         {tab==="analytics" && (
