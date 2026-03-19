@@ -223,6 +223,7 @@ export default function MarchMadness() {
   const [drafters, setDrafters] = useState([]);
   const [newName, setNewName] = useState("");
   const [editMode, setEditMode] = useState(false);
+  const [draftSort, setDraftSort] = useState("alive");
   const [loading, setLoading] = useState(true);
   const [showOdds, setShowOdds] = useState(false);
   const [isAdmin, setIsAdmin] = useState(()=>localStorage.getItem("mm_admin")==="1");
@@ -618,12 +619,21 @@ export default function MarchMadness() {
                 <button onClick={addDrafter} className="bg-accent hover:bg-accent/90 text-surface px-4 py-2 rounded text-sm font-semibold">Add</button>
               </div>
             )}
-            {/* Region Legend */}
-            <div className="flex gap-4 mb-3 text-xs text-text-muted font-mono">
-              {["East","South","West","Midwest"].map(r=>(
-                <span key={r} className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full" style={{backgroundColor:REGION_COLORS[r]}}/>{r}</span>
-              ))}
-              <span className="ml-auto text-text-muted">Sorted: alive by seed, eliminated right</span>
+            {/* Sort + Region Legend */}
+            <div className="flex items-center gap-3 mb-3 flex-wrap">
+              <div className="flex gap-1">
+                {[{id:"alive",label:"Teams Left"},{id:"pts",label:"Points"},{id:"ev",label:"EV"},{id:"max",label:"Max"}].map(s=>(
+                  <button key={s.id} onClick={()=>setDraftSort(s.id)}
+                    className={`px-2 py-1 text-[10px] font-semibold uppercase tracking-wider rounded transition-colors ${
+                      draftSort===s.id ? "bg-accent text-white" : "bg-surface-raised text-text-muted hover:text-text-secondary"
+                    }`}>{s.label}</button>
+                ))}
+              </div>
+              <div className="flex gap-3 ml-auto text-xs text-text-muted font-mono">
+                {["East","South","West","Midwest"].map(r=>(
+                  <span key={r} className="flex items-center gap-1"><span className="w-2 h-2 rounded-full" style={{backgroundColor:REGION_COLORS[r]}}/>{r}</span>
+                ))}
+              </div>
             </div>
             <div className="overflow-x-auto border border-border rounded-lg">
               <table className="w-full text-sm">
@@ -632,8 +642,9 @@ export default function MarchMadness() {
                     <th className="text-left py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted sticky left-0 bg-surface-raised z-10 w-[150px]">Player</th>
                     <th className="text-left py-2.5 px-1 text-xs font-medium uppercase tracking-wider text-text-muted w-[100px]">Status</th>
                     {[1,2,3,4,5,6,7,8].map(n=><th key={n} className="text-center py-2 px-0.5 w-[100px] text-xs font-medium uppercase tracking-wider text-text-muted">{editMode ? `Pick ${n}` : n}</th>)}
-                    <th className="text-center py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted">Pts</th>
-                    <th className="text-center py-2.5 px-3 text-xs font-medium uppercase tracking-wider text-text-muted">Max</th>
+                    <th className={`text-center py-2.5 px-2 text-xs font-medium uppercase tracking-wider cursor-pointer ${draftSort==="pts"?"text-accent":"text-text-muted"}`} onClick={()=>setDraftSort("pts")}>Pts</th>
+                    <th className={`text-center py-2.5 px-2 text-xs font-medium uppercase tracking-wider cursor-pointer ${draftSort==="ev"?"text-accent":"text-text-muted"}`} onClick={()=>setDraftSort("ev")}>EV</th>
+                    <th className={`text-center py-2.5 px-2 text-xs font-medium uppercase tracking-wider cursor-pointer ${draftSort==="max"?"text-accent":"text-text-muted"}`} onClick={()=>setDraftSort("max")}>Max</th>
                     {editMode && <th className="w-8"></th>}
                   </tr>
                 </thead>
@@ -641,6 +652,9 @@ export default function MarchMadness() {
                   {(editMode ? drafters : [...drafters].sort((a,b) => {
                     const sa = scores.find(s=>s.id===a.id);
                     const sb = scores.find(s=>s.id===b.id);
+                    if (draftSort==="pts") return (sb?.pts||0) - (sa?.pts||0);
+                    if (draftSort==="ev") return (sb?.ev||0) - (sa?.ev||0);
+                    if (draftSort==="max") return (sb?.bracketMax||0) - (sa?.bracketMax||0);
                     return (sb?.alive||0) - (sa?.alive||0) || (sb?.pts||0) - (sa?.pts||0);
                   })).map((d,di)=>{
                     const dScore = scores.find(s=>s.id===d.id);
