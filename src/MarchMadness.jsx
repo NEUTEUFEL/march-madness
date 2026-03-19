@@ -638,12 +638,14 @@ export default function MarchMadness() {
                     const aliveCount = dScore?.alive || 0;
                     const elimCount = (dScore?.totalPicks || 0) - aliveCount;
                     const totalPicks = dScore?.totalPicks || 0;
-                    // Sort picks: alive by seed ascending, then eliminated
+                    // Sort: live games first, then won (has wins), then yet to play, then eliminated
                     const sortedPicks = editMode ? d.picks : (() => {
-                      const alive = d.picks.filter(p => p && !teamState[p]?.eliminated).sort((a,b) => (teamMap[a]?.seed||99) - (teamMap[b]?.seed||99));
-                      const elim = d.picks.filter(p => p && teamState[p]?.eliminated).sort((a,b) => (teamMap[a]?.seed||99) - (teamMap[b]?.seed||99));
+                      const playing = d.picks.filter(p => p && !teamState[p]?.eliminated && liveByTeam[p] && (liveByTeam[p].state === "live" || liveByTeam[p].state === "in"));
+                      const won = d.picks.filter(p => p && !teamState[p]?.eliminated && !playing.includes(p) && (teamState[p]?.wins || 0) > 0);
+                      const waiting = d.picks.filter(p => p && !teamState[p]?.eliminated && !playing.includes(p) && !won.includes(p));
+                      const elim = d.picks.filter(p => p && teamState[p]?.eliminated);
                       const empty = d.picks.filter(p => !p);
-                      return [...alive, ...elim, ...empty].slice(0, 8);
+                      return [...playing, ...won, ...waiting, ...elim, ...empty].slice(0, 8);
                     })();
                     return (
                       <tr key={d.id} className={`transition-colors hover:bg-surface-hover ${isMe ? "bg-accent/10" : isEven ? "" : "bg-surface-raised/30"}`}>
@@ -663,27 +665,53 @@ export default function MarchMadness() {
                           const t=teamMap[p]; const s=teamState[p];
                           const elim=s?.eliminated;
                           const regionColor = t ? REGION_COLORS[t.region] : null;
+                          const lg = liveByTeam[p];
+                          const isPlaying = lg && (lg.state === "live" || lg.state === "in");
+                          const hasWon = !elim && (s?.wins || 0) > 0;
+                          const myScore = lg ? (lg.away.name === p ? lg.away.score : lg.home.score) : "";
+                          const oppScore = lg ? (lg.away.name === p ? lg.home.score : lg.away.score) : "";
                           return (
-                            <td key={pi} className="py-2 px-1 text-center">
+                            <td key={pi} className="py-1 px-1 text-center">
                               {editMode ? (
                                 <TeamSelect value={p} onChange={v=>updatePick(di,pi,v)} teams={TEAMS.filter(t=>t.region!=="N/A")} />
+                              ) : !p ? (
+                                <div className="px-2 py-2 text-xs text-text-muted">{"\u2014"}</div>
+                              ) : elim ? (
+                                <div className="px-2 py-2 text-xs rounded bg-gray-900 text-white/80">
+                                  <span className="font-mono mr-1 text-white/40">{t?.seed}</span>
+                                  <span className="line-through">{p}</span>
+                                </div>
+                              ) : isPlaying ? (
+                                <div className="px-2 py-2 text-xs rounded border-2 border-red-400 bg-red-50">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{backgroundColor: regionColor}} />
+                                    <span className="font-mono text-text-muted">{t?.seed}</span>
+                                    <span className="font-semibold">{p}</span>
+                                  </div>
+                                  <div className="font-mono font-bold text-red-600 text-xs mt-0.5 animate-pulse">
+                                    LIVE {myScore}-{oppScore}
+                                  </div>
+                                  {lg.period && <div className="text-[9px] font-mono text-red-400">{lg.period} {lg.clock}</div>}
+                                </div>
+                              ) : hasWon ? (
+                                <div className="px-2 py-2 text-xs rounded bg-green-50 border border-green-200">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full" style={{backgroundColor: regionColor}} />
+                                    <span className="font-mono text-green-600">{t?.seed}</span>
+                                    <span className="font-semibold text-green-800">{p}</span>
+                                  </div>
+                                  <div className="font-mono font-semibold text-green-600 text-xs mt-0.5">+{t.seed*s.wins} {winDots(s.wins)}</div>
+                                </div>
                               ) : (
-                                <div className={`px-2 py-1.5 text-xs ${
-                                  !p ? "text-text-muted"
-                                  : elim ? "text-text-muted line-through"
-                                  : "text-text-primary"
-                                }`}>
-                                  {t && (
-                                    <span className="inline-block w-1.5 h-1.5 rounded-full mr-1.5 align-middle" style={{backgroundColor: regionColor}} />
+                                <div className="px-2 py-2 text-xs rounded bg-surface-raised">
+                                  <div className="flex items-center justify-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full" style={{backgroundColor: regionColor}} />
+                                    <span className="font-mono text-text-muted">{t?.seed}</span>
+                                    <span className="text-text-primary">{p}</span>
+                                  </div>
+                                  {lg && lg.state === "pre" && (
+                                    <div className="text-[9px] font-mono text-text-muted mt-0.5">{lg.startTime}</div>
                                   )}
-                                  {t && <span className="font-mono text-text-muted mr-1">{t.seed}</span>}
-                                  <span className={elim ? "text-text-muted" : s?.wins>=2 ? "text-text-primary font-medium" : ""}>
-                                    {p||"\u2014"}
-                                  </span>
-                                  {t && s && s.wins>0 && !elim && (
-                                    <div className="font-mono font-semibold text-accent text-xs mt-0.5">+{t.seed*s.wins}{winDots(s.wins)}</div>
-                                  )}
-                                  {elim && <div className="text-negative text-xs mt-0.5 font-mono">OUT</div>}
                                 </div>
                               )}
                             </td>
