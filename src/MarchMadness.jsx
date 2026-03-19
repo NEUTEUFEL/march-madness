@@ -304,11 +304,7 @@ export default function MarchMadness() {
 
     async function fetchLive(){
       try{
-        const now = new Date();
-        const y = now.getFullYear();
-        const m = String(now.getMonth()+1).padStart(2,"0");
-        const d = String(now.getDate()).padStart(2,"0");
-        const res = await fetch(`https://ncaa-api.henrygd.me/scoreboard/basketball-men/d1/${y}/${m}/${d}`);
+        const res = await fetch(`/api/scores`);
         if(!res.ok) return;
         const data = await res.json();
         const games = data?.games || [];
@@ -340,6 +336,39 @@ export default function MarchMadness() {
     const interval = setInterval(fetchLive, 30000);
     return ()=>clearInterval(interval);
   },[]);
+
+  // Auto-score: when a game goes final, update wins/eliminations
+  const processedFinals = useMemo(()=>new Set(),[]);
+  useEffect(()=>{
+    if(Object.keys(liveGames).length===0) return;
+    const seen = new Set();
+    Object.values(liveGames).forEach(g=>{
+      const key = `${g.away.name}-${g.home.name}`;
+      if(seen.has(key)) return;
+      seen.add(key);
+      if(g.state!=="final") return;
+      if(processedFinals.has(key)) return;
+      const awayScore = Number(g.away.score);
+      const homeScore = Number(g.home.score);
+      if(!awayScore && !homeScore) return;
+      const winner = awayScore > homeScore ? g.away.name : g.home.name;
+      const loser = awayScore > homeScore ? g.home.name : g.away.name;
+      // Only process if we know both teams and loser isn't already eliminated
+      if(!teamMap[winner] || !teamMap[loser]) return;
+      if(teamState[loser]?.eliminated) return;
+      processedFinals.add(key);
+      // Update winner wins and loser elimination
+      const winnerWins = (teamState[winner]?.wins || 0) + 1;
+      setTeamState(p=>({
+        ...p,
+        [winner]:{...p[winner],wins:winnerWins},
+        [loser]:{...p[loser],eliminated:true}
+      }));
+      supabase.from("team_states").update({wins:winnerWins}).eq("team_name",winner);
+      supabase.from("team_states").update({eliminated:true}).eq("team_name",loser);
+      logTimeline("elimination", loser, {seed:teamMap[loser]?.seed, region:teamMap[loser]?.region, lost_to:winner});
+    });
+  },[liveGames, teamState, teamMap, logTimeline, processedFinals]);
 
   const teamMap = useMemo(()=>{ const m={}; TEAMS.forEach(t=>{m[t.name]=t;}); return m; },[]);
 
