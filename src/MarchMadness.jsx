@@ -237,9 +237,11 @@ export default function MarchMadness() {
         setTeamState(s);
       }
       if (drafterRes.data) setDrafters(drafterRes.data.map(r => ({ id: r.id, name: r.name, picks: r.picks || [] })));
-      // Load timeline
-      const tlRes = await supabase.from("timeline").select("*").order("ts");
-      if (tlRes.data) setTimeline(tlRes.data);
+      // Load timeline (table may not exist yet — that's ok)
+      try {
+        const tlRes = await supabase.from("timeline").select("*").order("ts");
+        if (tlRes.data) setTimeline(tlRes.data);
+      } catch(e) { /* timeline table not created yet */ }
       setLoading(false);
     }
     loadData();
@@ -376,6 +378,16 @@ export default function MarchMadness() {
 
   const teamMap = useMemo(()=>{ const m={}; TEAMS.forEach(t=>{m[t.name]=t;}); return m; },[]);
 
+  const logTimeline = useCallback(async (eventType, teamName, detail, currentScores) => {
+    try {
+      const scoreSnap = {};
+      if(currentScores) currentScores.forEach(s=>{scoreSnap[s.name]={pts:s.pts,alive:s.alive};});
+      const row = {event_type:eventType, team_name:teamName, detail, scores:scoreSnap};
+      const {data} = await supabase.from("timeline").insert(row).select();
+      if(data?.[0]) setTimeline(prev=>[...prev, data[0]]);
+    } catch(e) { /* timeline table may not exist yet */ }
+  },[]);
+
   // Live badge helper — shows anywhere a team is mentioned
   function liveBadge(team, compact) {
     const lg = liveGames[team];
@@ -401,13 +413,7 @@ export default function MarchMadness() {
     return null;
   }
 
-  const logTimeline = useCallback(async (eventType, teamName, detail, currentScores) => {
-    const scoreSnap = {};
-    if(currentScores) currentScores.forEach(s=>{scoreSnap[s.name]={pts:s.pts,alive:s.alive};});
-    const row = {event_type:eventType, team_name:teamName, detail, scores:scoreSnap};
-    const {data} = await supabase.from("timeline").insert(row).select();
-    if(data?.[0]) setTimeline(prev=>[...prev, data[0]]);
-  },[]);
+  // logTimeline moved — defined earlier in the component
 
   // Find opponent of a team in a specific round (1-indexed: 1=R64, 2=R32, etc.)
   const findOpponent = useCallback((name, round) => {
