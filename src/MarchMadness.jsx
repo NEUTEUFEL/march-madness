@@ -226,7 +226,7 @@ export default function MarchMadness() {
   const [draftSort, setDraftSort] = useState("alive");
   const [loading, setLoading] = useState(true);
   const [showOdds, setShowOdds] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(()=>localStorage.getItem("mm_adm_v4")==="1");
+  const [isAdmin, setIsAdmin] = useState(()=>localStorage.getItem("mm_adm_v5")==="1");
   const [selectedUser, setSelectedUser] = useState(()=>localStorage.getItem("mm_user")||"");
   const [liveGames, setLiveGames] = useState([]);
   const [timeline, setTimeline] = useState([]);
@@ -447,7 +447,7 @@ export default function MarchMadness() {
               {drafters.map(d=><option key={d.name} value={d.name}>{d.name}</option>)}
             </select>
             {isAdmin ? (
-              <button onClick={()=>{setIsAdmin(false);localStorage.removeItem("mm_adm_v4");setEditMode(false);}}
+              <button onClick={()=>{setIsAdmin(false);localStorage.removeItem("mm_adm_v5");setEditMode(false);}}
                 className="px-3 py-1.5 text-xs font-medium border border-accent text-accent rounded hover:bg-accent/10 transition-colors">
                 Admin Mode
               </button>
@@ -458,7 +458,7 @@ export default function MarchMadness() {
                 if(!pin) return;
                 const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(pin)))).map(b=>b.toString(16).padStart(2,"0")).join("");
                 const dHash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(localStorage.getItem("mm_device"))))).map(b=>b.toString(16).padStart(2,"0")).join("");
-                if(hash==="fdc8510ebc4767b392564180123ecdac417540b3215390eaada187fcea62dff0"&&dHash==="a0f3285b29576396c10b8476299e60484fa29d03a498a63024dedb1af34f29e1"){setIsAdmin(true);localStorage.setItem("mm_adm_v4","1");}
+                if(hash==="4f904687bbf362d9bc2abb80698f53692501b3b1f991229c02a4dd1ae32d3172"&&dHash==="145653f261ea1df44065e6259df46ba2ba7d87b16709493379737156c574b433"){setIsAdmin(true);localStorage.setItem("mm_adm_v5","1");}
                 else alert("Wrong PIN or unauthorized device.");
               }}
                 className="px-3 py-1.5 text-xs font-medium border border-border text-text-muted rounded hover:text-text-secondary hover:border-text-muted transition-colors">
