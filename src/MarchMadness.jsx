@@ -18,7 +18,7 @@ const DRAFT_PAID = {
   "Franco Matticoli":true,"Gwen Baer":true,"Katie Close":true,"Laura Vidal":true,
   "Matthew Avila":true,"Mike Thiessen":true,"Sarah Jenkins":true,"Billy Jenkins":true,
   "Tanay Desai":true,"Lucas Neuteufel":true,
-  "Rob Hunden":false,"Steven Haemmerle":false,
+  "Rob Hunden":false,"Steven Haemmerle":true,
 };
 // Classic-only participants (not in draft)
 const CLASSIC_ONLY = [
